@@ -1,0 +1,21 @@
+# Build output and local runtime state
+**/bin/
+**/obj/
+**/.dotnet/
+**/.cli-home/
+**/.packages/
+**/TestResults/
+**/workspace/
+**/logs/
+.vs/
+*.user
+*.suo
+# Local credentials must remain outside version control
+.env
+.env.*
+!.env.example
+appsettings.Local.json
+*.pfx
+*.p12
+*.key
+*.trx

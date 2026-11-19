@@ -1,0 +1,40 @@
+<Window x:Class="GTS.Billing.Presentation.Wpf.MainWindow"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:GTS.Billing.Presentation.Wpf"
+ Title="GTS Billing System — Development Foundation" Width="1150" Height="760" MinWidth="850" MinHeight="550">
+ <Grid Background="#F3F5F8">
+ <local:AuthenticationView x:Name="AuthenticationPanel" />
+ <DockPanel x:Name="BillingShell" Visibility="Collapsed" Background="#F3F5F8">
+  <Border DockPanel.Dock="Top" Background="#15263C" Padding="24,18"><StackPanel>
+   <TextBlock Text="GTS Billing System" FontSize="25" Foreground="White" FontWeight="SemiBold" />
+   <TextBlock Text="Stage 4C · Company and Customer Masters · Development only" Foreground="#CBD5E1" Margin="0,5,0,0" />
+   <TextBlock x:Name="CurrentCompanyIndicator" Text="No company selected" Foreground="White" Margin="0,5,0,0" />
+   <WrapPanel Margin="0,10,0,0">
+    <Button x:Name="Regenerate" Content="Regenerate recovery codes" Click="RegenerateClicked" Padding="8,4" />
+    <Button Content="_Sign out" Click="LogoutClicked" Padding="8,4" Margin="8,0,0,0" />
+   </WrapPanel>
+  </StackPanel></Border>
+  <Border DockPanel.Dock="Bottom" Background="#FFF2CC" Padding="16"><StackPanel>
+   <TextBlock Text="{Binding DevelopmentWarning}" TextWrapping="Wrap" />
+   <TextBlock x:Name="DiagnosticsStatus" Text="{Binding DiagnosticsWarning}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+  </StackPanel></Border>
+  <Border DockPanel.Dock="Left" Width="245" Background="White" Padding="12">
+   <ListBox ItemsSource="{Binding Modules}" SelectedItem="{Binding SelectedModule, Mode=TwoWay}" DisplayMemberPath="Title" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Auto">
+    <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="Padding" Value="9"/><Setter Property="Margin" Value="0,2"/></Style></ListBox.ItemContainerStyle>
+   </ListBox>
+  </Border>
+  <Grid>
+  <StackPanel x:Name="PlannedPanel" Margin="32">
+   <TextBlock Text="{Binding SelectedModule.Title}" FontSize="28" FontWeight="SemiBold" />
+   <TextBlock Text="{Binding SelectedModule.Status}" Foreground="#7A4C00" FontSize="16" Margin="0,16,0,0" />
+   <TextBlock Text="{Binding SelectedModule.Description}" FontSize="16" TextWrapping="Wrap" Margin="0,14,0,0" />
+   <TextBlock Text="{Binding DatabaseStatus}" TextWrapping="Wrap" Margin="0,30,0,0" Foreground="#475569" />
+  </StackPanel>
+  <local:CompanyView x:Name="CompanyPanel" Visibility="Collapsed" />
+  <local:CustomerView x:Name="CustomerPanel" Visibility="Collapsed" />
+  <local:CatalogView x:Name="CatalogPanel" Visibility="Collapsed" />
+  </Grid>
+ </DockPanel>
+ </Grid>
+</Window>

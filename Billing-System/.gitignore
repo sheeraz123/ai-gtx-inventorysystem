@@ -1,0 +1,15 @@
+**/bin/
+**/obj/
+.packages/
+.cli-home/
+.local/
+TestResults/
+**/TestResults/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.installation.json
+*.log
+.vs/
+*.user

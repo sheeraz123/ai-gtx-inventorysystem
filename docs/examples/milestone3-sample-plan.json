@@ -1,0 +1,58 @@
+{
+  "title": "Disposable Sample greeting plan",
+  "goal": "Implement and verify Sample.Greeting.Format(string? name) within the specified sample files.",
+  "tasks": [
+    {
+      "id": "D1",
+      "role": "developer",
+      "description": "Implement Sample.Greeting.Format(string? name) and configure the scoped sample solution and projects as needed.",
+      "dependencies": [],
+      "acceptanceCriteria": [
+        "Changes are limited to the five scoped files.",
+        "Sample.Greeting.Format accepts a nullable string.",
+        "Null, empty and whitespace-only input return exactly \"Hello!\".",
+        "Nonblank input has surrounding whitespace trimmed and returns exactly \"Hello, <trimmed name>!\".",
+        "Unicode names and internal whitespace are preserved.",
+        "The sample solution builds successfully."
+      ]
+    },
+    {
+      "id": "T1",
+      "role": "tester",
+      "description": "Add and run greeting tests in tests/Sample.Tests/GreetingTests.cs using the scoped test project.",
+      "dependencies": [
+        "D1"
+      ],
+      "acceptanceCriteria": [
+        "Ordinary input \"Ada\" returns \"Hello, Ada!\".",
+        "Surrounding whitespace input \"  Ada  \" returns \"Hello, Ada!\".",
+        "Null input returns \"Hello!\".",
+        "Empty input returns \"Hello!\".",
+        "Whitespace-only input, including spaces, tabs and newlines, returns \"Hello!\".",
+        "Unicode input \"李雷\" returns \"Hello, 李雷!\".",
+        "All greeting tests pass, and the test command and results are recorded as review evidence.",
+        "Changes remain within the scoped files."
+      ]
+    },
+    {
+      "id": "R1",
+      "role": "reviewer",
+      "description": "Review implementation correctness, security and test evidence for the disposable Sample.",
+      "dependencies": [
+        "T1"
+      ],
+      "acceptanceCriteria": [
+        "Confirm the method signature, trimming behavior and exact output strings satisfy the requirements.",
+        "Confirm null handling is safe and supplied names are treated as data without execution or unintended side effects.",
+        "Confirm test evidence demonstrates passing ordinary, trimmed, null, empty, whitespace and Unicode cases.",
+        "Confirm changes are limited to the five scoped files and introduce no Billing functionality or additional business requirements.",
+        "Record review findings and identify any unresolved correctness, security or test-evidence issues."
+      ]
+    }
+  ],
+  "assumptions": [
+    "This is a disposable Sample project, not Billing.",
+    "Scope is limited to Sample.slnx, src/Sample/Sample.csproj, src/Sample/Greeting.cs, tests/Sample.Tests/Sample.Tests.csproj and tests/Sample.Tests/GreetingTests.cs."
+  ],
+  "questions": []
+}

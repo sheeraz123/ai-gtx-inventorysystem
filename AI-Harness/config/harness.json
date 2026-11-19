@@ -1,0 +1,17 @@
+{
+  "Harness": {
+    "Workspace": "workspace/milestone1",
+    "TimeoutSeconds": 120,
+    "RetryDelayMilliseconds": 100,
+    "Agents": [
+      { "Role": "planner", "Provider": "placeholder", "Model": "unconfigured", "Permissions": ["ReadFile", "ListFiles"] },
+      { "Role": "architect", "Provider": "placeholder", "Model": "unconfigured", "Permissions": ["ReadFile", "ListFiles"] },
+      { "Role": "developer", "Provider": "placeholder", "Model": "unconfigured", "Permissions": ["ReadFile", "ListFiles", "StageChange", "DotnetBuild"] },
+      { "Role": "tester", "Provider": "placeholder", "Model": "unconfigured", "Permissions": ["ReadFile", "ListFiles", "StageChange", "DotnetTest"] },
+      { "Role": "reviewer", "Provider": "placeholder", "Model": "unconfigured", "Permissions": ["ReadFile", "ListFiles", "GitStatus", "GitDiff"] },
+      { "Role": "documentation", "Provider": "placeholder", "Model": "unconfigured", "Permissions": ["ReadFile", "ListFiles", "StageChange"] }
+    ]
+  },
+  "Provider": { "CredentialEnvironmentVariable": "GTX_AI_API_KEY" },
+  "Logging": { "LogLevel": { "Default": "Information", "Microsoft": "Warning" } }
+}

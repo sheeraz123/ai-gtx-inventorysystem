@@ -1,0 +1,231 @@
+<UserControl x:Class="GTS.Billing.Presentation.Wpf.CompanyPresentationView"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:GTS.Billing.Presentation.Wpf">
+ <UserControl.Resources>
+  <BooleanToVisibilityConverter x:Key="Visible"/>
+  <Style TargetType="Button"><Setter Property="Margin" Value="0,0,8,4"/><Setter Property="Padding" Value="10,5"/></Style>
+  <Style TargetType="CheckBox"><Setter Property="Margin" Value="0,7,12,7"/></Style>
+  <DataTemplate DataType="{x:Type local:CompanyField}">
+   <StackPanel Margin="0,4">
+    <TextBlock Text="{Binding Label}"/>
+    <TextBox Text="{Binding Value,UpdateSourceTrigger=PropertyChanged}" MaxLength="2000" Padding="4"
+      AutomationProperties.Name="{Binding Label}"/>
+   </StackPanel>
+  </DataTemplate>
+  <DataTemplate x:Key="EditorActions">
+   <WrapPanel Margin="0,8">
+    <Button Content="_Edit" Command="{Binding EditRecordCommand}" Visibility="{Binding Viewing,Converter={StaticResource Visible}}" IsEnabled="{Binding CanEditViewed}"/>
+    <Button Content="_Save" Command="{Binding SaveRecordCommand}" Visibility="{Binding Editing,Converter={StaticResource Visible}}" IsEnabled="{Binding CanWriteRecord}"/>
+    <Button Content="_Close details" Command="{Binding CloseRecordCommand}" Visibility="{Binding Viewing,Converter={StaticResource Visible}}"/>
+    <Button Content="_Cancel" Command="{Binding CloseRecordCommand}" Visibility="{Binding Editing,Converter={StaticResource Visible}}"/>
+   </WrapPanel>
+  </DataTemplate>
+
+  <DataTemplate x:Key="Section1">
+<Grid Margin="10">
+     <DockPanel>
+      <DockPanel.Style><Style TargetType="DockPanel"><Style.Triggers>
+       <DataTrigger Binding="{Binding LogoOpen}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+      </Style.Triggers></Style></DockPanel.Style>
+      <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+       <TextBox Width="230" Margin="0,0,8,4" MaxLength="100" Padding="5"
+         Text="{Binding LogoSearch,UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search company logos by name or usage"
+         ToolTip="Search starts at three characters"/>
+       <Button Content="_Add logo" Command="{Binding AddLogoCommand}" IsEnabled="{Binding CanManageRecords}"/>
+       <Button Content="_View logo" Command="{Binding OpenLogoCommand}"/>
+      </WrapPanel>
+      <DataGrid ItemsSource="{Binding Logos}" SelectedItem="{Binding SelectedLogo}" IsReadOnly="True" AutoGenerateColumns="False"
+        SelectionMode="Single" CanUserAddRows="False" local:MasterGridInteraction.ViewRowCommand="{Binding OpenLogoCommand}"
+        AutomationProperties.Name="Company logos">
+       <DataGrid.Columns>
+        <DataGridTemplateColumn Header="Preview" Width="90"><DataGridTemplateColumn.CellTemplate><DataTemplate>
+         <Image Source="{Binding Preview}" Width="76" Height="48" Stretch="Uniform"/>
+        </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+        <DataGridTextColumn Header="Name" Binding="{Binding Row.Name}" Width="*"/>
+        <DataGridTextColumn Header="Usage" Binding="{Binding Row.Usage}"/>
+        <DataGridTextColumn Header="Order" Binding="{Binding Row.Order}"/>
+        <DataGridTextColumn Header="Status" Binding="{Binding Row.Status}"/>
+        <DataGridTextColumn Header="Invoice slot" Binding="{Binding Row.InvoiceSlot}"/>
+       </DataGrid.Columns>
+      </DataGrid>
+     </DockPanel>
+     <Border Background="#F3F5F8" Padding="12" Visibility="{Binding LogoOpen,Converter={StaticResource Visible}}">
+      <ScrollViewer VerticalScrollBarVisibility="Auto">
+       <StackPanel>
+        <TextBlock Text="Logo details" FontSize="20" FontWeight="SemiBold"/>
+        <Image Source="{Binding LogoPreview}" Height="110" MaxWidth="320" HorizontalAlignment="Left"/>
+        <StackPanel IsEnabled="{Binding CanWriteRecord}">
+         <ItemsControl ItemsSource="{Binding Fields}"/>
+         <Label Content="_Usage" Target="{Binding ElementName=LogoUsage}"/>
+         <ComboBox x:Name="LogoUsage" ItemsSource="{Binding LogoUsages}" SelectedItem="{Binding Usage}" AutomationProperties.Name="Logo usage"/>
+         <CheckBox Content="Active" IsChecked="{Binding Active}"/>
+        </StackPanel>
+        <WrapPanel Visibility="{Binding Editing,Converter={StaticResource Visible}}">
+         <Button Content="Choose or _replace image" Click="ChooseImage" IsEnabled="{Binding CanWriteRecord}"/>
+         <Button Content="_Remove unused logo" Command="{Binding RemoveLogoCommand}" IsEnabled="{Binding CanWriteRecord}"/>
+        </WrapPanel>
+        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource EditorActions}"/>
+       </StackPanel>
+      </ScrollViewer>
+     </Border>
+    </Grid>
+  </DataTemplate>
+  <DataTemplate x:Key="Section2">
+<Grid Margin="10">
+     <DockPanel>
+      <DockPanel.Style><Style TargetType="DockPanel"><Style.Triggers>
+       <DataTrigger Binding="{Binding BankOpen}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+      </Style.Triggers></Style></DockPanel.Style>
+      <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+       <TextBox Width="230" Margin="0,0,8,4" MaxLength="100" Padding="5"
+         Text="{Binding BankSearch,UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search banks, account holders, IFSC or branch"
+         ToolTip="Search starts at three characters"/>
+       <Button Content="_Add bank account" Command="{Binding AddBankCommand}" IsEnabled="{Binding CanManageRecords}"/>
+       <Button Content="_View bank account" Command="{Binding OpenBankCommand}"/>
+       <Button Content="Set _invoice default" Command="{Binding SetInvoiceBankCommand}"/>
+       <Button Content="Clear invoice _default" Command="{Binding ClearInvoiceBankCommand}"/>
+      </WrapPanel>
+      <DataGrid ItemsSource="{Binding Banks}" SelectedItem="{Binding SelectedBank}" IsReadOnly="True" AutoGenerateColumns="False"
+        SelectionMode="Single" CanUserAddRows="False" local:MasterGridInteraction.ViewRowCommand="{Binding OpenBankCommand}"
+        AutomationProperties.Name="Company bank accounts">
+       <DataGrid.Columns>
+        <DataGridTextColumn Header="Bank" Binding="{Binding BankName}" Width="*"/>
+        <DataGridTextColumn Header="Account holder" Binding="{Binding AccountHolder}"/>
+        <DataGridTextColumn Header="Account number" Binding="{Binding MaskedNumber}"/>
+        <DataGridTextColumn Header="IFSC" Binding="{Binding Ifsc}"/>
+        <DataGridTextColumn Header="Branch" Binding="{Binding Branch}"/>
+        <DataGridTextColumn Header="Type" Binding="{Binding AccountType}"/>
+        <DataGridCheckBoxColumn Header="Active" Binding="{Binding Active}"/>
+        <DataGridCheckBoxColumn Header="Invoice default" Binding="{Binding Default}"/>
+        <DataGridTextColumn Header="Order" Binding="{Binding Order}"/>
+       </DataGrid.Columns>
+      </DataGrid>
+     </DockPanel>
+     <Border Background="#F3F5F8" Padding="12" Visibility="{Binding BankOpen,Converter={StaticResource Visible}}">
+      <ScrollViewer VerticalScrollBarVisibility="Auto">
+       <StackPanel>
+        <TextBlock Text="Bank account details" FontSize="20" FontWeight="SemiBold"/>
+        <StackPanel IsEnabled="{Binding CanWriteRecord}">
+         <ItemsControl ItemsSource="{Binding Fields}"/>
+         <CheckBox Content="Active" IsChecked="{Binding Active}"/>
+        </StackPanel>
+        <TextBlock Text="Deactivating the default leaves invoices without a bank selection. Choose another in Invoice Defaults." TextWrapping="Wrap"/>
+        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource EditorActions}"/>
+       </StackPanel>
+      </ScrollViewer>
+     </Border>
+    </Grid>
+  </DataTemplate>
+  <DataTemplate x:Key="Section3">
+<ScrollViewer Margin="10" VerticalScrollBarVisibility="Auto">
+     <StackPanel>
+      <StackPanel IsEnabled="{Binding CanWriteDefaults}">
+      <Label Content="_Primary logo" Target="{Binding ElementName=PrimaryLogo}"/>
+      <ComboBox x:Name="PrimaryLogo" ItemsSource="{Binding LogoChoices}" DisplayMemberPath="Name" SelectedValuePath="Id"
+        SelectedValue="{Binding Defaults.Primary,Mode=TwoWay}" AutomationProperties.Name="Primary invoice logo"/>
+      <CheckBox Content="Show primary logo on invoices" IsChecked="{Binding Defaults.ShowPrimary}"/>
+      <Label Content="_Secondary logo" Target="{Binding ElementName=SecondaryLogo}"/>
+      <ComboBox x:Name="SecondaryLogo" ItemsSource="{Binding LogoChoices}" DisplayMemberPath="Name" SelectedValuePath="Id"
+        SelectedValue="{Binding Defaults.Secondary,Mode=TwoWay}" AutomationProperties.Name="Secondary invoice logo"/>
+      <CheckBox Content="Show secondary logo on invoices" IsChecked="{Binding Defaults.ShowSecondary}"/>
+      <Label Content="_Default bank account" Target="{Binding ElementName=DefaultBank}"/>
+      <ComboBox x:Name="DefaultBank" ItemsSource="{Binding BankChoices}" DisplayMemberPath="Name" SelectedValuePath="Id"
+        SelectedValue="{Binding Defaults.Bank,Mode=TwoWay}" AutomationProperties.Name="Invoice default bank account"/>
+      <TextBlock Text="The selected default bank account is included on invoices." TextWrapping="Wrap" Margin="0,5"/>
+      <CheckBox Content="Show UPI from the default account" IsChecked="{Binding Defaults.ShowUpi}"/>
+      <Label Content="_Header text" Target="{Binding ElementName=HeaderText}"/>
+      <TextBox x:Name="HeaderText" Text="{Binding Defaults.Header,UpdateSourceTrigger=PropertyChanged}" MaxLength="1000"
+        TextWrapping="Wrap" AcceptsReturn="True" MinHeight="38"/>
+      <Label Content="_Footer text" Target="{Binding ElementName=FooterText}"/>
+      <TextBox x:Name="FooterText" Text="{Binding Defaults.Footer,UpdateSourceTrigger=PropertyChanged}" MaxLength="1000"
+        TextWrapping="Wrap" AcceptsReturn="True" MinHeight="38"/>
+      <Label Content="_Authorized signatory name" Target="{Binding ElementName=Signatory}"/>
+      <TextBox x:Name="Signatory" Text="{Binding Defaults.Signatory,UpdateSourceTrigger=PropertyChanged}" MaxLength="200"/>
+      <Label Content="_Terms and conditions" Target="{Binding ElementName=Terms}"/>
+      <TextBox x:Name="Terms" Text="{Binding Defaults.Terms,UpdateSourceTrigger=PropertyChanged}" MaxLength="8000"
+        TextWrapping="Wrap" AcceptsReturn="True" MinHeight="65" MaxHeight="150" VerticalScrollBarVisibility="Auto"/>
+      </StackPanel>
+      <WrapPanel Margin="0,12,0,4">
+       <Button Content="_Save defaults" Command="{Binding SaveDefaultsCommand}" Visibility="{Binding CanWriteDefaults,Converter={StaticResource Visible}}"/>
+       <Button Content="_Reset changes" Command="{Binding ResetDefaultsCommand}" Visibility="{Binding CanWriteDefaults,Converter={StaticResource Visible}}"/>
+       <Button Content="Preview sa_ved defaults" Command="{Binding PreviewDefaultsCommand}"/>
+      </WrapPanel>
+      <TextBlock Text="{Binding PreviewCaption}" TextWrapping="Wrap"/>
+      <WrapPanel><Image Source="{Binding PrimaryPreview}" MaxWidth="140" MaxHeight="75" Margin="0,5,10,0"/>
+       <Image Source="{Binding SecondaryPreview}" MaxWidth="140" MaxHeight="75" Margin="0,5,0,0"/></WrapPanel>
+     </StackPanel>
+    </ScrollViewer>
+  </DataTemplate>
+  <DataTemplate x:Key="Section4">
+   <Grid Margin="10">
+    <DockPanel>
+     <DockPanel.Style><Style TargetType="DockPanel"><Style.Triggers>
+      <DataTrigger Binding="{Binding TaxOpen}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+     </Style.Triggers></Style></DockPanel.Style>
+     <StackPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+      <TextBlock Text="Only the active registration marked as default is included in invoice defaults." TextWrapping="Wrap" Margin="0,0,0,6"/>
+      <WrapPanel>
+       <TextBox Width="200" Margin="0,0,8,4" MaxLength="100" Padding="5"
+        Text="{Binding TaxSearchText,UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search by GSTIN or state code"
+        ToolTip="Search starts at three characters"/>
+       <Button Content="_Add registration" Command="{Binding AddTaxCommand}" IsEnabled="{Binding CanManageRecords}"/>
+       <Button Content="_View registration" Command="{Binding OpenTaxCommand}"/>
+      </WrapPanel>
+     </StackPanel>
+     <DataGrid ItemsSource="{Binding TaxRows}" SelectedItem="{Binding SelectedTax}" AutoGenerateColumns="False"
+      IsReadOnly="True" CanUserAddRows="False" SelectionMode="Single"
+      local:MasterGridInteraction.ViewRowCommand="{Binding OpenTaxCommand}" AutomationProperties.Name="Company GST registrations">
+      <DataGrid.Columns>
+       <DataGridTextColumn Header="GSTIN" Binding="{Binding Draft.Gstin}" Width="*"/>
+       <DataGridTextColumn Header="State / UT" Binding="{Binding State}" Width="*"/>
+       <DataGridCheckBoxColumn Header="Active" Binding="{Binding Draft.Active}"/>
+       <DataGridCheckBoxColumn Header="Default for invoices" Binding="{Binding Draft.Default}"/>
+      </DataGrid.Columns>
+     </DataGrid>
+    </DockPanel>
+    <Border Background="#F3F5F8" Padding="12" Visibility="{Binding TaxOpen,Converter={StaticResource Visible}}">
+     <ScrollViewer VerticalScrollBarVisibility="Auto">
+      <StackPanel>
+       <TextBlock Text="GST registration" FontSize="20" FontWeight="SemiBold"/>
+       <StackPanel IsEnabled="{Binding CanEnterTaxIdentity}">
+        <Label Content="_GSTIN *" Target="{Binding ElementName=TaxNumber}"/>
+        <TextBox x:Name="TaxNumber" MaxLength="100" Text="{Binding TaxGstin,UpdateSourceTrigger=PropertyChanged}"/>
+        <Label Content="_State / UT *" Target="{Binding ElementName=TaxRegion}"/>
+        <ComboBox x:Name="TaxRegion" ItemsSource="{Binding TaxStates}" DisplayMemberPath="Label" SelectedValuePath="Key"
+         SelectedValue="{Binding TaxState,Mode=TwoWay}" TextSearch.TextPath="Label"/>
+       </StackPanel>
+       <StackPanel IsEnabled="{Binding CanWriteRecord}">
+        <CheckBox Content="Active" IsChecked="{Binding Active}"/>
+        <CheckBox Content="Default for invoices" IsChecked="{Binding TaxDefault}"/>
+       </StackPanel>
+       <ContentControl Content="{Binding}" ContentTemplate="{StaticResource EditorActions}"/>
+      </StackPanel>
+     </ScrollViewer>
+    </Border>
+   </Grid>
+  </DataTemplate>
+ </UserControl.Resources>
+ <DockPanel>
+  <StackPanel DockPanel.Dock="Top" Margin="10,5">
+   <TextBlock Text="{Binding Message}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+   <ProgressBar IsIndeterminate="True" Height="4" Visibility="{Binding Busy,Converter={StaticResource Visible}}"/>
+  </StackPanel>
+  <ContentControl Content="{Binding}" IsEnabled="{Binding Authorized}">
+   <ContentControl.Style><Style TargetType="ContentControl"><Style.Triggers>
+    <DataTrigger Binding="{Binding Tag,RelativeSource={RelativeSource AncestorType=local:CompanyPresentationView}}" Value="1">
+     <Setter Property="ContentTemplate" Value="{StaticResource Section1}"/>
+    </DataTrigger>
+    <DataTrigger Binding="{Binding Tag,RelativeSource={RelativeSource AncestorType=local:CompanyPresentationView}}" Value="2">
+     <Setter Property="ContentTemplate" Value="{StaticResource Section2}"/>
+    </DataTrigger>
+    <DataTrigger Binding="{Binding Tag,RelativeSource={RelativeSource AncestorType=local:CompanyPresentationView}}" Value="3">
+     <Setter Property="ContentTemplate" Value="{StaticResource Section3}"/>
+    </DataTrigger>
+    <DataTrigger Binding="{Binding Tag,RelativeSource={RelativeSource AncestorType=local:CompanyPresentationView}}" Value="4">
+     <Setter Property="ContentTemplate" Value="{StaticResource Section4}"/>
+    </DataTrigger>
+   </Style.Triggers></Style></ContentControl.Style>
+  </ContentControl>
+ </DockPanel>
+</UserControl>

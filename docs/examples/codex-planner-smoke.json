@@ -1,0 +1,53 @@
+{
+  "title": "Pure greeting formatter and tests",
+  "goal": "Plan a deterministic greeting formatter with unit tests, without implementing it.",
+  "tasks": [
+    {
+      "id": "T1",
+      "role": "planner",
+      "description": "Define the formatter contract, including input types, whitespace handling, fallback behavior, and exact output punctuation.",
+      "dependencies": [],
+      "acceptanceCriteria": [
+        "The contract specifies exact outputs for ordinary, whitespace-padded, empty, and missing names.",
+        "The contract defines handling of unsupported input types.",
+        "Any unresolved behavior is explicitly recorded before implementation."
+      ]
+    },
+    {
+      "id": "T2",
+      "role": "developer",
+      "description": "Implement the pure greeting formatter according to the agreed contract using project conventions.",
+      "dependencies": [
+        "T1"
+      ],
+      "acceptanceCriteria": [
+        "Identical inputs produce identical outputs.",
+        "The formatter performs no I/O, modifies no external state, and does not mutate inputs.",
+        "Outputs match the agreed contract."
+      ]
+    },
+    {
+      "id": "T3",
+      "role": "tester",
+      "description": "Add and run unit tests for the formatter contract and deterministic behavior.",
+      "dependencies": [
+        "T2"
+      ],
+      "acceptanceCriteria": [
+        "Tests verify exact results for ordinary names, surrounding whitespace, blank and missing names, and Unicode names.",
+        "Tests cover unsupported input types according to the contract.",
+        "Repeated calls with the same input produce the same output.",
+        "All formatter tests pass under the project\u0027s test runner."
+      ]
+    }
+  ],
+  "assumptions": [
+    "The formatter accepts a name and returns a greeting string without side effects.",
+    "Proposed default behavior is to trim surrounding whitespace and return \u0022Hello, \u003Cname\u003E!\u0022; missing or blank names return \u0022Hello!\u0022.",
+    "The existing project language and test framework will be used."
+  ],
+  "questions": [
+    "Should the proposed greeting text and blank-name fallback be used?",
+    "Should non-string inputs be rejected, converted, or excluded by the type contract?"
+  ]
+}

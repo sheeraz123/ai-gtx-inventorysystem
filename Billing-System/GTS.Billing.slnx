@@ -1,0 +1,9 @@
+<Solution>
+<Folder Name="/src/">
+<Project Path="src/GTS.Billing.Domain/GTS.Billing.Domain.csproj" />
+<Project Path="src/GTS.Billing.Application/GTS.Billing.Application.csproj" />
+<Project Path="src/GTS.Billing.Infrastructure/GTS.Billing.Infrastructure.csproj" />
+<Project Path="src/GTS.Billing.Printing/GTS.Billing.Printing.csproj" />
+<Project Path="src/GTS.Billing.Presentation.Wpf/GTS.Billing.Presentation.Wpf.csproj" />
+</Folder><Folder Name="/tests/"><Project Path="tests/GTS.Billing.Tests/GTS.Billing.Tests.csproj" /></Folder>
+</Solution>

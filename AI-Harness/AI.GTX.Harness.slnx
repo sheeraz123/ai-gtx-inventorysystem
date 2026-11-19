@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AI.GTX.Harness.Core/AI.GTX.Harness.Core.csproj" />
+    <Project Path="src/AI.GTX.Harness.Orchestrator/AI.GTX.Harness.Orchestrator.csproj" />
+    <Project Path="src/AI.GTX.Harness.Agents/AI.GTX.Harness.Agents.csproj" />
+    <Project Path="src/AI.GTX.Harness.Tools/AI.GTX.Harness.Tools.csproj" />
+    <Project Path="src/AI.GTX.Harness.Infrastructure/AI.GTX.Harness.Infrastructure.csproj" />
+    <Project Path="src/AI.GTX.Harness.Host/AI.GTX.Harness.Host.csproj" />
+  </Folder>
+  <Folder Name="/tests/"><Project Path="tests/AI.GTX.Harness.Tests/AI.GTX.Harness.Tests.csproj" /><Project Path="tests/AI.GTX.Harness.ProcessProbe/AI.GTX.Harness.ProcessProbe.csproj" /></Folder>
+</Solution>

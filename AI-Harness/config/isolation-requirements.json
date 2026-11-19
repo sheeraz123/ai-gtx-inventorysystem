@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Proposed acceptance requirements, not executable configuration or verification evidence",
+  "implemented": false,
+  "isolationVerified": false,
+  "candidateBackend": "Disposable Hyper-V VM with offline guest",
+  "hostRuntimeMustRemainNonAdministrator": true,
+  "guestIdentity": "Non-administrator or non-root workload account",
+  "networkAdapters": 0,
+  "hostRepositoryMappings": [],
+  "hostProfileMappings": [],
+  "sharedClipboard": false,
+  "enhancedSessionOrHostDriveRedirection": false,
+  "hostCredentialsInGuest": false,
+  "codexCliInsideGuest": false,
+  "inputTransport": "Approved scoped snapshot on read-only media; copied to guest-private work directory",
+  "outputTransport": "Dedicated bounded artifact disk or broker channel; never a host source share",
+  "limitsProposedNotEnforced": {
+    "virtualProcessors": 2,
+    "memoryMiB": 4096,
+    "dynamicMemory": false,
+    "guestDiskGiB": 20,
+    "workloadProcesses": 128,
+    "commandTimeoutSeconds": 120,
+    "stdoutCharacters": 1000000,
+    "stderrCharacters": 1000000,
+    "returnedArtifactsMiB": 10,
+    "concurrentWorkloads": 1
+  },
+  "requiredEvidence": [
+    "Guest and toolchain image hashes approved",
+    "Allowed snapshot read, guest-local write, and trusted dotnet probe succeed",
+    "Synthetic host repository/profile/authentication/secret canaries are unreadable and unwritable",
+    "Host process canary is inaccessible and remains alive",
+    "No host drive, device, container socket or privileged management API exposed",
+    "No guest network adapter and failed DNS/TCP/UDP egress probes",
+    "Guest environment contains only approved non-secret variables",
+    "Memory/CPU/disk/process bounds measured with trusted probes",
+    "Timeout/cancellation terminates guest workload and descendants; no surviving VM/workload",
+    "Artifact traversal/symlink/size attacks rejected",
+    "Evidence bound to backend/image/policy/snapshot hashes and collected during the current verified configuration"
+  ]
+}

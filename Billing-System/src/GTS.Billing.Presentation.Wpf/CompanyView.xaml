@@ -1,0 +1,125 @@
+<UserControl x:Class="GTS.Billing.Presentation.Wpf.CompanyView"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:GTS.Billing.Presentation.Wpf">
+ <UserControl.Resources>
+  <BooleanToVisibilityConverter x:Key="Visible"/>
+  <DataTemplate DataType="{x:Type local:CompanyField}">
+   <StackPanel Margin="4,5">
+    <TextBlock Text="{Binding Label}" FontWeight="SemiBold" Margin="0,0,0,4"/>
+    <TextBox Text="{Binding Value,UpdateSourceTrigger=PropertyChanged}" IsReadOnly="{Binding ReadOnly}" AutomationProperties.Name="{Binding Label}"
+      MinHeight="30" MaxHeight="110" Padding="5" MaxLength="8000" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto">
+     <TextBox.Style><Style TargetType="TextBox"><Setter Property="Visibility" Value="Visible"/>
+      <Style.Triggers><DataTrigger Binding="{Binding IsChoice}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+       <DataTrigger Binding="{Binding IsDate}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers>
+     </Style></TextBox.Style>
+    </TextBox>
+    <DatePicker SelectedDate="{Binding DateValue,Mode=TwoWay,UpdateSourceTrigger=PropertyChanged}"
+      AutomationProperties.Name="{Binding Label}" MinHeight="30">
+     <DatePicker.Style><Style TargetType="DatePicker"><Setter Property="Visibility" Value="Collapsed"/>
+      <Style.Triggers><DataTrigger Binding="{Binding IsDate}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers>
+     </Style></DatePicker.Style>
+    </DatePicker>
+    <ComboBox ItemsSource="{Binding FilteredChoices}" DisplayMemberPath="Label" SelectedValuePath="Key"
+      IsEditable="{Binding IsSearchable,Mode=OneWay}" IsTextSearchEnabled="False" StaysOpenOnEdit="True" TextBoxBase.TextChanged="StateSearchChanged"
+      SelectedValue="{Binding Value,UpdateSourceTrigger=PropertyChanged}" MinHeight="30" AutomationProperties.Name="{Binding Label}">
+     <ComboBox.Style><Style TargetType="ComboBox"><Setter Property="Visibility" Value="Collapsed"/>
+      <Style.Triggers><DataTrigger Binding="{Binding IsChoice}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers>
+     </Style></ComboBox.Style>
+    </ComboBox>
+    <TextBlock Text="{Binding Error}" Foreground="#A31621" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+   </StackPanel>
+  </DataTemplate>
+ </UserControl.Resources>
+ <Grid Margin="18">
+  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+  <TextBlock Text="Company Master" FontSize="26" FontWeight="SemiBold"/>
+  <StackPanel Grid.Row="1"><TextBlock Text="{Binding Message}" TextWrapping="Wrap" Margin="0,8" AutomationProperties.LiveSetting="Polite"/>
+   <ProgressBar IsIndeterminate="True" Height="4" Visibility="{Binding Busy,Converter={StaticResource Visible}}"/>
+  </StackPanel>
+  <Grid Grid.Row="2">
+   <DockPanel>
+    <DockPanel.Style><Style TargetType="DockPanel"><Style.Triggers>
+     <DataTrigger Binding="{Binding EditorVisible}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+    </Style.Triggers></Style></DockPanel.Style>
+    <StackPanel DockPanel.Dock="Top">
+     <WrapPanel Margin="0,0,0,10">
+      <TextBox Text="{Binding Search,UpdateSourceTrigger=PropertyChanged}" Width="180" MaxLength="100" ToolTip="Search starts at three characters" AutomationProperties.Name="Search companies by code, name, GSTIN or city" Margin="0,0,6,0"/>
+      <Button Content="_Refresh" Command="{Binding RefreshCommand}" Padding="8,5"/>
+      <Button Content="_Add company" Command="{Binding AddCommand}" Padding="8,5" Margin="6,0"/>
+     </WrapPanel>
+     <WrapPanel Margin="0,0,0,10">
+      <Button Content="_Edit" Command="{Binding EditCommand}" Padding="8,5"/>
+      <Button Content="_View details" Command="{Binding ViewCommand}" Padding="8,5" Margin="6,0"/>
+      <Button Content="Activate / _Deactivate" Command="{Binding ToggleActiveCommand}" Padding="8,5" Margin="0,0,6,0"/>
+      <Button Content="Select as _Current" Command="{Binding SelectCommand}" Padding="8,5"/>
+     </WrapPanel>
+    </StackPanel>
+    <DataGrid ItemsSource="{Binding Companies}" SelectedItem="{Binding Selected}" AutoGenerateColumns="False" IsReadOnly="True"
+      SelectionMode="Single" CanUserAddRows="False" AutomationProperties.Name="Companies"
+      local:MasterGridInteraction.ViewRowCommand="{Binding ViewCommand}">
+     <DataGrid.Columns>
+      <DataGridTextColumn Header="Code" Binding="{Binding Code}"/>
+      <DataGridTextColumn Header="Legal name" Binding="{Binding LegalName}" Width="*"/>
+      <DataGridTextColumn Header="Trade name" Binding="{Binding TradeName}"/>
+      <DataGridTextColumn Header="City" Binding="{Binding City}"/>
+      <DataGridTextColumn Header="State" Binding="{Binding State}"/>
+      <DataGridTextColumn Header="GSTIN" Binding="{Binding Gstin}"/>
+      <DataGridTextColumn Header="Status" Binding="{Binding Status}"/>
+      <DataGridTextColumn Header="Selection" Binding="{Binding Current}"/>
+     </DataGrid.Columns>
+    </DataGrid>
+   </DockPanel>
+   <Border Background="#F3F5F8" Visibility="{Binding EditorVisible,Converter={StaticResource Visible}}" Padding="0,0,0,4">
+    <DockPanel>
+     <StackPanel DockPanel.Dock="Bottom">
+      <WrapPanel>
+       <Button Content="_Edit" Command="{Binding EditViewedCommand}" Visibility="{Binding ViewOnly,Converter={StaticResource Visible}}" Padding="8,5" Margin="0,0,6,0"/>
+       <Button Content="_Save" Command="{Binding SaveCommand}" Padding="12,5" Margin="0,0,6,0">
+        <Button.Style><Style TargetType="Button"><Style.Triggers>
+         <DataTrigger Binding="{Binding ViewOnly}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+         <DataTrigger Binding="{Binding SelectedItem.IsPresentation,ElementName=EditorTabs}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+        </Style.Triggers></Style></Button.Style>
+       </Button>
+       <Button Click="CancelEditor" Padding="8,5">
+        <Button.Style><Style TargetType="Button"><Setter Property="Content" Value="_Cancel"/><Style.Triggers>
+         <DataTrigger Binding="{Binding ViewOnly}" Value="True"><Setter Property="Content" Value="_Close"/></DataTrigger>
+        </Style.Triggers></Style></Button.Style>
+       </Button>
+      </WrapPanel>
+     </StackPanel>
+     <TabControl x:Name="EditorTabs" ItemsSource="{Binding Sections}" SelectionChanged="EditorTabChanged">
+      <TabControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding Title}"/></DataTemplate></TabControl.ItemTemplate>
+      <TabControl.ContentTemplate><DataTemplate>
+       <Grid>
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+         <ScrollViewer.Style><Style TargetType="ScrollViewer"><Style.Triggers>
+          <DataTrigger Binding="{Binding IsPresentation}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+         </Style.Triggers></Style></ScrollViewer.Style>
+         <ItemsControl ItemsSource="{Binding Fields}" Margin="10" IsEnabled="{Binding DataContext.CanEdit,RelativeSource={RelativeSource AncestorType=local:CompanyView}}"/>
+        </ScrollViewer>
+        <Grid Visibility="{Binding IsPresentation,Converter={StaticResource Visible}}">
+         <local:CompanyPresentationView Tag="{Binding SelectedItem.PresentationPage,RelativeSource={RelativeSource AncestorType=TabControl}}"
+          DataContext="{Binding DataContext.PresentationEditor,RelativeSource={RelativeSource AncestorType=local:CompanyView}}">
+          <local:CompanyPresentationView.Style><Style TargetType="local:CompanyPresentationView"><Style.Triggers>
+           <DataTrigger Binding="{Binding}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+          </Style.Triggers></Style></local:CompanyPresentationView.Style>
+         </local:CompanyPresentationView>
+         <TextBlock Text="{Binding DataContext.PresentationUnavailable,RelativeSource={RelativeSource AncestorType=local:CompanyView}}"
+          Margin="12" TextWrapping="Wrap">
+          <TextBlock.Style><Style TargetType="TextBlock">
+           <Setter Property="Visibility" Value="Collapsed"/>
+           <Style.Triggers><DataTrigger Binding="{Binding DataContext.PresentationEditor,RelativeSource={RelativeSource AncestorType=local:CompanyView}}" Value="{x:Null}">
+            <Setter Property="Visibility" Value="Visible"/>
+           </DataTrigger></Style.Triggers>
+          </Style></TextBlock.Style>
+         </TextBlock>
+        </Grid>
+       </Grid>
+      </DataTemplate></TabControl.ContentTemplate>
+     </TabControl>
+    </DockPanel>
+   </Border>
+  </Grid>
+ </Grid>
+</UserControl>

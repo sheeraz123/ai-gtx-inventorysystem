@@ -1,0 +1,5 @@
+{
+  "Codex": { "Executable": "codex.exe", "TimeoutSeconds": 180 },
+  "Planning": { "Model": "default", "MaxAttempts": 2 },
+  "Changes": { "Workspace": "workspace/approved-changes", "Staging": "workspace/change-proposals" }
+}

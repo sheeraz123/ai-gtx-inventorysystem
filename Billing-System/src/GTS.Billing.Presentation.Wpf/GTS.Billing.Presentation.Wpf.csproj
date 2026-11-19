@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+<PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF><StartupObject>GTS.Billing.Presentation.Wpf.Program</StartupObject></PropertyGroup>
+<ItemGroup><InternalsVisibleTo Include="GTS.Billing.Tests" /></ItemGroup>
+<ItemGroup>
+<ProjectReference Include="../GTS.Billing.Application/GTS.Billing.Application.csproj" />
+<ProjectReference Include="../GTS.Billing.Infrastructure/GTS.Billing.Infrastructure.csproj" />
+<ProjectReference Include="../GTS.Billing.Printing/GTS.Billing.Printing.csproj" />
+<PackageReference Include="CommunityToolkit.Mvvm" />
+<PackageReference Include="Microsoft.Extensions.Hosting" />
+</ItemGroup><ItemGroup><None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
+</Project>

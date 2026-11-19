@@ -1,0 +1,148 @@
+{
+  "SchemaVersion": 1,
+  "CollectedAtUtc": "2026-11-15T23:20:59.40591+05:30",
+  "Windows": {
+    "Known": true,
+    "Value": {
+      "ProductName": "Windows 10 Pro",
+      "EditionID": "Professional",
+      "DisplayVersion": "22H2",
+      "CurrentBuildNumber": "19045",
+      "UBR": 6466
+    },
+    "ErrorType": null
+  },
+  "AdministratorProcess": {
+    "Known": true,
+    "Value": false,
+    "ErrorType": null
+  },
+  "Computer": {
+    "Known": true,
+    "Value": {
+      "HypervisorPresent": false,
+      "TotalPhysicalMemory": 16976740352
+    },
+    "ErrorType": null
+  },
+  "Processor": {
+    "Known": true,
+    "Value": {
+      "VirtualizationFirmwareEnabled": true,
+      "VMMonitorModeExtensions": true,
+      "SecondLevelAddressTranslationExtensions": true
+    },
+    "ErrorType": null
+  },
+  "OptionalFeatures": [
+    {
+      "Name": "Containers-DisposableClientVM",
+      "State": "Unknown",
+      "QuerySucceeded": false,
+      "ErrorType": "COMException"
+    },
+    {
+      "Name": "Microsoft-Hyper-V-All",
+      "State": "Unknown",
+      "QuerySucceeded": false,
+      "ErrorType": "COMException"
+    },
+    {
+      "Name": "VirtualMachinePlatform",
+      "State": "Unknown",
+      "QuerySucceeded": false,
+      "ErrorType": "COMException"
+    },
+    {
+      "Name": "Microsoft-Windows-Subsystem-Linux",
+      "State": "Unknown",
+      "QuerySucceeded": false,
+      "ErrorType": "COMException"
+    }
+  ],
+  "Services": [
+    {
+      "Name": "vmms",
+      "Found": false,
+      "Status": "NotFound",
+      "QuerySucceeded": true
+    },
+    {
+      "Name": "vmcompute",
+      "Found": false,
+      "Status": "NotFound",
+      "QuerySucceeded": true
+    },
+    {
+      "Name": "hns",
+      "Found": false,
+      "Status": "NotFound",
+      "QuerySucceeded": true
+    },
+    {
+      "Name": "LxssManager",
+      "Found": false,
+      "Status": "NotFound",
+      "QuerySucceeded": true
+    },
+    {
+      "Name": "WslService",
+      "Found": false,
+      "Status": "NotFound",
+      "QuerySucceeded": true
+    }
+  ],
+  "Tools": [
+    {
+      "Name": "WindowsSandbox.exe",
+      "FoundOnPath": false
+    },
+    {
+      "Name": "vmconnect.exe",
+      "FoundOnPath": false
+    },
+    {
+      "Name": "docker.exe",
+      "FoundOnPath": false
+    },
+    {
+      "Name": "podman.exe",
+      "FoundOnPath": false
+    },
+    {
+      "Name": "wsl.exe",
+      "FoundOnPath": true
+    },
+    {
+      "Name": "wslc.exe",
+      "FoundOnPath": false
+    },
+    {
+      "Name": "hcsdiag.exe",
+      "FoundOnPath": false
+    },
+    {
+      "Name": "runhcs.exe",
+      "FoundOnPath": false
+    }
+  ],
+  "WindowsSandboxBinaryPresent": false,
+  "HyperVModulePresent": false,
+  "WslStatus": {
+    "Started": true,
+    "ExitCode": 50,
+    "TimedOut": false,
+    "ListedDistributionCount": null
+  },
+  "WslDistributions": {
+    "Started": true,
+    "ExitCode": 1,
+    "TimedOut": false,
+    "ListedDistributionCount": null
+  },
+  "IsolationVerified": false,
+  "NegativeOsTests": "NotRun: no verified isolated runtime was selected or launched",
+  "GeneratedCodeExecuted": false,
+  "SystemChangesPerformed": false,
+  "Warning": "Inventory is not a confinement attestation and cannot enable the harness execution gate."
+}

@@ -1,0 +1,1 @@
+<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><ProjectReference Include="../GTS.Billing.Domain/GTS.Billing.Domain.csproj" /></ItemGroup></Project>

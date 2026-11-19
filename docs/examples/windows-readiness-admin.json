@@ -1,0 +1,173 @@
+{
+  "SchemaVersion": 1,
+  "CollectedAtUtc": "2026-11-15T23:35:02.720493+05:30",
+  "RunId": "fbe9d4e8-b4b8-486c-bd14-3135819695e3",
+  "AssessmentComplete": true,
+  "SystemChangesPerformed": false,
+  "IsolationVerified": false,
+  "AdministratorProcess": true,
+  "BaselineReport": "AI-Harness/workspace/isolation-assessment/20261115-180505-e6337b5eaf994fe9a466790326b5215f.json",
+  "Windows": {
+    "Known": true,
+    "Value": {
+      "ProductName": "Windows 10 Pro",
+      "EditionID": "Professional",
+      "DisplayVersion": "22H2",
+      "Build": "19045.6466",
+      "Architecture": "64-bit",
+      "Version": "10.0.19045",
+      "DEPAvailable": true,
+      "TotalMemoryMiB": 16190.0,
+      "FreeMemoryMiB": 6211.0
+    },
+    "ErrorType": null
+  },
+  "Virtualization": {
+    "Known": true,
+    "Value": {
+      "Computer": {
+        "HypervisorPresent": true
+      },
+      "Processor": [
+        {
+          "AddressWidth": 64,
+          "DataWidth": 64,
+          "NumberOfCores": 4,
+          "NumberOfLogicalProcessors": 8,
+          "VirtualizationFirmwareEnabled": false,
+          "VMMonitorModeExtensions": false,
+          "SecondLevelAddressTranslationExtensions": false
+        }
+      ]
+    },
+    "ErrorType": null
+  },
+  "Features": [
+    {
+      "Name": "Microsoft-Hyper-V-All",
+      "QuerySucceeded": true,
+      "State": "Enabled",
+      "ErrorType": null
+    },
+    {
+      "Name": "Microsoft-Hyper-V-Hypervisor",
+      "QuerySucceeded": true,
+      "State": "Enabled",
+      "ErrorType": null
+    },
+    {
+      "Name": "Microsoft-Hyper-V-Services",
+      "QuerySucceeded": true,
+      "State": "Enabled",
+      "ErrorType": null
+    },
+    {
+      "Name": "Microsoft-Hyper-V-Management-PowerShell",
+      "QuerySucceeded": true,
+      "State": "Enabled",
+      "ErrorType": null
+    },
+    {
+      "Name": "Containers-DisposableClientVM",
+      "QuerySucceeded": true,
+      "State": "Enabled",
+      "ErrorType": null
+    },
+    {
+      "Name": "VirtualMachinePlatform",
+      "QuerySucceeded": true,
+      "State": "Enabled",
+      "ErrorType": null
+    },
+    {
+      "Name": "Microsoft-Windows-Subsystem-Linux",
+      "QuerySucceeded": true,
+      "State": "Disabled",
+      "ErrorType": null
+    }
+  ],
+  "Storage": {
+    "Known": true,
+    "Value": [
+      {
+        "DeviceID": "C:",
+        "FileSystem": "NTFS",
+        "SizeGiB": 292.3,
+        "FreeGiB": 203.0
+      },
+      {
+        "DeviceID": "D:",
+        "FileSystem": "NTFS",
+        "SizeGiB": 184.0,
+        "FreeGiB": 183.1
+      }
+    ],
+    "ErrorType": null
+  },
+  "RecentHotfixes": {
+    "Known": true,
+    "Value": [
+      {
+        "HotFixID": "KB5066130",
+        "InstalledOn": "2026-11-14"
+      },
+      {
+        "HotFixID": "KB5071959",
+        "InstalledOn": "2026-11-14"
+      },
+      {
+        "HotFixID": "KB5071982",
+        "InstalledOn": "2026-11-08"
+      },
+      {
+        "HotFixID": "KB5066135",
+        "InstalledOn": "2026-09-17"
+      },
+      {
+        "HotFixID": "KB5011048",
+        "InstalledOn": "2026-09-17"
+      }
+    ],
+    "ErrorType": null
+  },
+  "EsuLicenseIndicators": {
+    "Known": true,
+    "Value": {
+      "ProductsReported": 24,
+      "LicensedProducts": 0,
+      "DistinctLicenseStatusCodes": [
+        0
+      ],
+      "EnrollmentConclusive": false,
+      "Note": "No licensed ESU products were reported by this projection; consumer enrollment/current coverage is not conclusively determined."
+    },
+    "ErrorType": null
+  },
+  "PendingReboot": {
+    "Known": true,
+    "Value": {
+      "ComponentServicing": false,
+      "WindowsUpdate": false
+    },
+    "ErrorType": null
+  },
+  "BootPrerequisites": {
+    "Known": true,
+    "Value": {
+      "ExitCode": 0,
+      "ExplicitFlags": [
+        {
+          "Name": "nx",
+          "Value": "OptIn"
+        },
+        {
+          "Name": "hypervisorlaunchtype",
+          "Value": "Auto"
+        }
+      ],
+      "UnlistedFlags": "Not explicitly reported; no boot-setting change attempted"
+    },
+    "ErrorType": null
+  },
+  "ServicingAssessment": "Installed build/update observations only. ESU enrollment and update-policy compliance are not proven; no licensing keys or authentication data queried."
+}
