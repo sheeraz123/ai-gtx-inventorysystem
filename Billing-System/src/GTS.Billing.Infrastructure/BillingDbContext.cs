@@ -14,6 +14,12 @@ public sealed class BillingDbContext(DbContextOptions<BillingDbContext> options)
         gst.Property(x=>x.IsInvoiceDefault).HasDefaultValue(false);
         gst.HasIndex(x=>x.CompanyId,"InvoiceTaxDefault").HasDatabaseName("UX_GstRegistrations_InvoiceDefault").IsUnique().HasFilter("IsInvoiceDefault = 1");
         gst.ToTable(t=>t.HasCheckConstraint("CK_Gst_InvoiceDefault","IsInvoiceDefault IN (0,1) AND (IsInvoiceDefault = 0 OR IsActive = 1)"));
+        SecuritySchema.Configure(modelBuilder);
+        SettingsSchema.Configure(modelBuilder);
+        UnitBrandSchema.Configure(modelBuilder);
+        TaxSchema.Configure(modelBuilder);
+        NumberingSchema.Configure(modelBuilder);
+        SalesInvoiceSchema.Configure(modelBuilder);
     }
     public async Task<Company?> FindAsync(Guid id, CancellationToken cancellationToken = default) =>
         await Set<Company>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, cancellationToken);

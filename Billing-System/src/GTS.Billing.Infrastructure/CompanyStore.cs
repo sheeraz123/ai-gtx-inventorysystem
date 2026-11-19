@@ -17,12 +17,16 @@ public sealed class CompanyStore(DevelopmentDatabase database) : ICompanyStore
             if(installation.Id!=database.ExpectedInstallationId() || installation.SetupState!="Configured" ||
                 installation.DatabaseMode!="PlaintextDevelopment") return new(CompanyOutcome.Unavailable);
             var user=await db.Set<User>().SingleOrDefaultAsync(x=>x.Id==actor.UserId,ct);
-            if(user?.IsActive!=true || user.Version!=actor.Version) return new(CompanyOutcome.SessionRequired);
-            if(!await db.Set<SuperAdminAssignment>().AnyAsync(x=>x.UserId==actor.UserId,ct)) return new(CompanyOutcome.Forbidden);
+            if(user?.IsActive!=true || user.IsLocked || user.MustChangePassword || user.Version!=actor.Version) return new(CompanyOutcome.SessionRequired);
+            var admin=await ScopedAccess.IsSuperAdminAsync(db,actor.UserId,ct);
+            if(!admin && request.Action is CompanyAction.Create or CompanyAction.SetActive) return new(CompanyOutcome.Forbidden);
+            if(!admin) request=request with {ProfileOnly=true};
+            var accessible=ScopedAccess.CompanyIds(db,actor.UserId);
             var selected=await db.Set<CompanySelection>().SingleOrDefaultAsync(ct);
             if(request.Action is CompanyAction.List or CompanyAction.Current)
             {
                 var query=db.Set<Company>().AsNoTracking();
+                if(!admin) query=query.Where(x=>accessible.Contains(x.Id));
                 if(request.Action==CompanyAction.Current) query=query.Where(x=>selected!=null && x.Id==selected.CompanyId);
                 var search=request.Search?.Trim() ?? "";
                 if(search.Length>=3)
@@ -31,14 +35,20 @@ public sealed class CompanyStore(DevelopmentDatabase database) : ICompanyStore
                     search=search.ToUpperInvariant();
                     query=query.Where(x=>x.Code.Contains(search) || x.LegalName.ToUpper().Contains(search) ||
                         x.DisplayName!=null && x.DisplayName.ToUpper().Contains(search) ||
-                        db.Set<GstRegistration>().Any(g=>g.CompanyId==x.Id && g.IsActive && g.Gstin.ToUpper().Contains(search)) ||
-                        db.Set<CompanyAddress>().Any(a=>a.CompanyId==x.Id && a.City.ToUpper().Contains(search)));
+                        admin && (db.Set<GstRegistration>().Any(g=>g.CompanyId==x.Id && g.IsActive && g.Gstin.ToUpper().Contains(search)) ||
+                        db.Set<CompanyAddress>().Any(a=>a.CompanyId==x.Id && a.City.ToUpper().Contains(search))));
                 }
-                var companies=await query.OrderBy(x=>x.Code).Take(200).ToListAsync(ct);
+                var pageSize=request.Action==CompanyAction.Current?1:request.PageSize;
+                var companies=await query.OrderBy(x=>x.Code)
+                    .Skip(request.Action==CompanyAction.Current?0:request.Page*pageSize).Take(pageSize+1).ToListAsync(ct);
                 var rows=new List<CompanyDetails>();
-                foreach(var company in companies) rows.Add(await Read(db,company,selected?.CompanyId,false,ct,
-                    profileOnly:request.Action==CompanyAction.List || request.ProfileOnly));
-                return new(CompanyOutcome.Success,rows);
+                foreach(var company in companies.Take(pageSize))
+                {
+                    var view=admin || (await ScopedAccess.ResolveAsync(db,actor.UserId,company.Id,ct)).Contains("Company.View");
+                    rows.Add(view ? await Read(db,company,selected?.CompanyId,false,ct,profileOnly:request.Action==CompanyAction.List || request.ProfileOnly)
+                        : IdentityOnly(company,selected?.CompanyId));
+                }
+                return new(CompanyOutcome.Success,rows,More:companies.Count>pageSize);
             }
             Company companyRow;
             if(request.Action==CompanyAction.Create)
@@ -48,9 +58,16 @@ public sealed class CompanyStore(DevelopmentDatabase database) : ICompanyStore
             }
             else
             {
-                var found=await db.Set<Company>().SingleOrDefaultAsync(x=>x.Id==request.Id,ct);
+                var found=await db.Set<Company>().SingleOrDefaultAsync(x=>x.Id==request.Id && (admin || accessible.Contains(x.Id)),ct);
                 if(found is null) return new(CompanyOutcome.NotFound);
                 companyRow=found;
+                if(!admin && request.Action!=CompanyAction.Select)
+                {
+                    if(selected?.CompanyId!=companyRow.Id) return new(CompanyOutcome.Forbidden);
+                    var permissions=await ScopedAccess.ResolveAsync(db,actor.UserId,companyRow.Id,ct);
+                    if(!permissions.Contains("Company.View") || request.Action==CompanyAction.Update && !permissions.Contains("Company.Edit"))
+                        return new(CompanyOutcome.Forbidden);
+                }
                 if(request.Action==CompanyAction.Get)
                     return new(CompanyOutcome.Success,[await Read(db,companyRow,selected?.CompanyId,true,ct,request.ProfileOnly)]);
                 if(request.ExpectedVersion!=companyRow.Version) return new(CompanyOutcome.Conflict);
@@ -86,16 +103,19 @@ public sealed class CompanyStore(DevelopmentDatabase database) : ICompanyStore
                 else selected.CompanyId=companyRow.Id;
             }
             else return new(CompanyOutcome.InvalidInput);
-            companyRow.UpdatedUtc=DateTime.UtcNow;
-            companyRow.UpdatedByUserId=actor.UserId;
-            // Every mutation advances the aggregate token, including child-only changes and selection.
-            db.Entry(companyRow).Property(x=>x.UpdatedUtc).IsModified=true;
+            if(request.Action!=CompanyAction.Select)
+            {
+                companyRow.UpdatedUtc=DateTime.UtcNow;
+                companyRow.UpdatedByUserId=actor.UserId;
+                db.Entry(companyRow).Property(x=>x.UpdatedUtc).IsModified=true;
+            }
             db.Add(new AuditEvent {CompanyId=companyRow.Id,ActorUserId=actor.UserId,ActorKind="User",
                 Action=request.Action switch {CompanyAction.Create=>"CompanyCreated",CompanyAction.Update=>"CompanyUpdated",
                     CompanyAction.Select=>"CurrentCompanySelected",_=>request.Active?"CompanyActivated":"CompanyDeactivated"},
                 RecordType="Company",RecordId=companyRow.Id.ToString(),ChangesJson="{}"});
             await db.SaveChangesAsync(ct);
-            var details = await Read(db,companyRow,selected?.CompanyId,true,ct,request.ProfileOnly);
+            var details = !admin && request.Action==CompanyAction.Select ? IdentityOnly(companyRow,selected?.CompanyId)
+                : await Read(db,companyRow,selected?.CompanyId,true,ct,request.ProfileOnly);
             ct.ThrowIfCancellationRequested();
             await transaction.CommitAsync(ct);
             return new(CompanyOutcome.Success,[details]);
@@ -108,6 +128,10 @@ public sealed class CompanyStore(DevelopmentDatabase database) : ICompanyStore
         catch(Exception e) when(e is SqliteException or DbUpdateException or IOException or InvalidOperationException)
         { return new(CompanyOutcome.Unavailable); }
     }
+
+    private static CompanyDetails IdentityOnly(Company company,Guid? selected) => new(company.Id,company.Version,
+        company.IsActive,selected==company.Id,new CompanyDraft { Code=company.Code,LegalName=company.LegalName,TradeName=company.DisplayName },
+        company.CreatedUtc,null,null,null);
 
     private static void ApplyCompany(Company c,CompanyDraft d)
     {

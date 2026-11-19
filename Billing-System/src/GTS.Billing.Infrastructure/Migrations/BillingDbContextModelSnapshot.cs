@@ -210,6 +210,73 @@ namespace GTS.Billing.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("GTS.Billing.Domain.Brand", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Active")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("TEXT");
+
+                    b.Property<byte[]>("Logo")
+                        .HasColumnType("BLOB");
+
+                    b.Property<string>("Manufacturer")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NormalizedName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("UpdatedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.HasIndex("CompanyId", "Code")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyId", "NormalizedName")
+                        .IsUnique();
+
+                    b.ToTable("Brands", (string)null);
+                });
+
             modelBuilder.Entity("GTS.Billing.Domain.BrandingAsset", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1250,14 +1317,37 @@ namespace GTS.Billing.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<Guid>("CompanyId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("CreatedUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("DocumentType")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid>("FinancialYearId")
+                        .HasColumnType("TEXT");
+
                     b.Property<Guid>("GstRegistrationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<int>("Padding")
@@ -1267,8 +1357,22 @@ namespace GTS.Billing.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Separator")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<long>("StartingNumber")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("Suffix")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("UpdatedUtc")
+                        .HasColumnType("TEXT");
 
                     b.Property<long>("Version")
                         .IsConcurrencyToken()
@@ -1276,12 +1380,24 @@ namespace GTS.Billing.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CompanyId", "GstRegistrationId", "DocumentType")
+                    b.HasIndex("CreatedBy");
+
+                    b.HasIndex("UpdatedBy");
+
+                    b.HasIndex("CompanyId", "GstRegistrationId");
+
+                    b.HasIndex("CompanyId", "FinancialYearId", "GstRegistrationId", "DocumentType")
+                        .IsUnique()
+                        .HasFilter("IsDefault=1");
+
+                    b.HasIndex("CompanyId", "FinancialYearId", "GstRegistrationId", "DocumentType", "Code")
                         .IsUnique();
 
                     b.ToTable("DocumentNumberingSeries", null, t =>
                         {
-                            t.HasCheckConstraint("CK_Series_Range", "StartingNumber > 0 AND Padding BETWEEN 1 AND 9 AND length(Prefix) BETWEEN 1 AND 6");
+                            t.HasCheckConstraint("CK_Series_Default", "IsDefault IN (0,1) AND IsActive IN (0,1) AND (IsDefault=0 OR IsActive=1)");
+
+                            t.HasCheckConstraint("CK_Series_Range", "StartingNumber > 0 AND Padding BETWEEN 1 AND 9 AND length(Prefix)<=80 AND length(Suffix)<=80 AND Separator IN ('','-','/')");
                         });
                 });
 
@@ -1290,10 +1406,42 @@ namespace GTS.Billing.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid?>("ClosedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ClosedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("CreatedUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateOnly>("End")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsCurrent")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReopenReason")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("ReopenedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ReopenedUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<DateOnly>("Start")
@@ -1303,20 +1451,129 @@ namespace GTS.Billing.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("UpdatedUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<long>("Version")
                         .IsConcurrencyToken()
                         .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ClosedBy");
+
+                    b.HasIndex("CreatedBy");
+
+                    b.HasIndex("ReopenedBy");
+
+                    b.HasIndex("UpdatedBy");
+
+                    b.HasIndex("CompanyId", "Code")
+                        .IsUnique();
+
                     b.HasIndex("CompanyId", "Start")
                         .IsUnique();
 
+                    b.HasIndex(new[] { "CompanyId" }, "CurrentFinancialYear")
+                        .IsUnique()
+                        .HasFilter("IsCurrent=1");
+
                     b.ToTable("FinancialYears", null, t =>
                         {
-                            t.HasCheckConstraint("CK_FY_Boundaries", "strftime('%m-%d', Start) = '04-01' AND strftime('%m-%d', End) = '03-31' AND End = date(Start, '+1 year', '-1 day')");
+                            t.HasCheckConstraint("CK_FY_Boundaries", "date(Start) IS NOT NULL AND date(End) IS NOT NULL AND End > Start");
+
+                            t.HasCheckConstraint("CK_FY_Current", "IsCurrent IN (0,1) AND (IsCurrent=0 OR Status='Open')");
 
                             t.HasCheckConstraint("CK_FY_Status", "Status IN ('Open','Closed')");
+                        });
+                });
+
+            modelBuilder.Entity("GTS.Billing.Domain.GstRateDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Active")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("Cess")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("Cgst")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateOnly>("From")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Igst")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Sgst")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateOnly?>("To")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Total")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Treatment")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("UpdatedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("Utgst")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.HasIndex("CompanyId", "Code", "From")
+                        .IsUnique();
+
+                    b.ToTable("GstRateDefinitions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_GstRate_Dates", "\"To\" IS NULL OR \"To\" > \"From\"");
+
+                            t.HasCheckConstraint("CK_GstRate_Percentages", "Total BETWEEN 0 AND 1000000 AND Cgst BETWEEN 0 AND 1000000 AND Sgst BETWEEN 0 AND 1000000 AND Igst BETWEEN 0 AND 1000000 AND Cess BETWEEN 0 AND 1000000 AND (Utgst IS NULL OR Utgst BETWEEN 0 AND 1000000)");
+
+                            t.HasCheckConstraint("CK_GstRate_Treatment", "(Treatment='Taxable' AND Total>0 AND Cgst+Sgst=Total AND Igst=Total AND (Utgst IS NULL OR Cgst+Utgst=Total)) OR (Treatment IN ('NilRated','Exempt','ZeroRated','NonGst') AND Total=0 AND Cgst=0 AND Sgst=0 AND Igst=0 AND Cess=0 AND coalesce(Utgst,0)=0)");
                         });
                 });
 
@@ -1710,8 +1967,6 @@ namespace GTS.Billing.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasAlternateKey("CompanyId", "Id");
-
                     b.HasIndex("CreatedByUserId");
 
                     b.HasIndex("UpdatedByUserId");
@@ -1824,6 +2079,130 @@ namespace GTS.Billing.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("GTS.Billing.Domain.ProductMeasureProfile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("BaseUnitId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("BrandId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Classification")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "BaseUnitId");
+
+                    b.HasIndex("CompanyId", "BrandId");
+
+                    b.HasIndex("CompanyId", "ProductId")
+                        .IsUnique();
+
+                    b.ToTable("ProductMeasureProfiles", (string)null);
+                });
+
+            modelBuilder.Entity("GTS.Billing.Domain.ProductTaxProfile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ClassificationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Context")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "ClassificationId");
+
+                    b.HasIndex("CompanyId", "ProductId")
+                        .IsUnique();
+
+                    b.ToTable("ProductTaxProfiles", (string)null);
+                });
+
+            modelBuilder.Entity("GTS.Billing.Domain.ProductUnitConversion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Active")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("DefaultPurchase")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("DefaultSales")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("FactorToBaseUnit")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("UnitId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "UnitId");
+
+                    b.HasIndex("CompanyId", "ProductId", "UnitId")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "CompanyId", "ProductId" }, "DefaultPurchase")
+                        .IsUnique()
+                        .HasFilter("DefaultPurchase = 1");
+
+                    b.HasIndex(new[] { "CompanyId", "ProductId" }, "DefaultSales")
+                        .IsUnique()
+                        .HasFilter("DefaultSales = 1");
+
+                    b.ToTable("ProductUnitConversions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Conversions_Defaults", "Active = 1 OR (DefaultSales = 0 AND DefaultPurchase = 0)");
+
+                            t.HasCheckConstraint("CK_Conversions_Factor", "CAST(FactorToBaseUnit AS REAL) > 0");
+                        });
+                });
+
             modelBuilder.Entity("GTS.Billing.Domain.RecoveryCode", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1892,8 +2271,37 @@ namespace GTS.Billing.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Code")
+                        .HasColumnType("TEXT")
+                        .UseCollation("NOCASE");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("CreatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("IsSystemRole")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("Name")
                         .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("UpdatedUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<long>("Version")
@@ -1902,8 +2310,15 @@ namespace GTS.Billing.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("CreatedByUserId");
+
                     b.HasIndex("Name")
                         .IsUnique();
+
+                    b.HasIndex("UpdatedByUserId");
 
                     b.ToTable("Roles", null, t =>
                         {
@@ -1944,6 +2359,115 @@ namespace GTS.Billing.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("GTS.Billing.Domain.SalesInvoice", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("CustomerId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CustomerName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DraftJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("FinalizedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("FinalizedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("FinancialYearId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("LedgerId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Number")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PurchaseOrder")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("RegistrationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("SeriesId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Tax")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Taxable")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Total")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("UpdatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedBy");
+
+                    b.HasIndex("FinalizedBy");
+
+                    b.HasIndex("LedgerId")
+                        .IsUnique()
+                        .HasFilter("LedgerId IS NOT NULL");
+
+                    b.HasIndex("UpdatedBy");
+
+                    b.HasIndex("CompanyId", "CustomerId");
+
+                    b.HasIndex("CompanyId", "Date");
+
+                    b.HasIndex("CompanyId", "FinancialYearId");
+
+                    b.HasIndex("CompanyId", "LedgerId");
+
+                    b.HasIndex("CompanyId", "RegistrationId");
+
+                    b.HasIndex("CompanyId", "SeriesId");
+
+                    b.ToTable("SalesInvoices", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Sales_Finalization", "(LedgerId IS NULL AND Number IS NULL AND FinalizedUtc IS NULL AND FinalizedBy IS NULL) OR (LedgerId IS NOT NULL AND Number IS NOT NULL AND FinalizedUtc IS NOT NULL AND FinalizedBy IS NOT NULL AND FinancialYearId IS NOT NULL AND SeriesId IS NOT NULL AND RegistrationId IS NOT NULL AND CustomerId IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_Sales_Json", "json_valid(DraftJson)");
+                        });
+                });
+
             modelBuilder.Entity("GTS.Billing.Domain.SessionHistory", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1977,6 +2501,63 @@ namespace GTS.Billing.Infrastructure.Migrations
                     b.ToTable("SessionHistory", null, t =>
                         {
                             t.HasCheckConstraint("CK_Session_Status", "Status IN ('Active','Ended','Interrupted')");
+                        });
+                });
+
+            modelBuilder.Entity("GTS.Billing.Domain.SettingOverride", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("CompanyId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("UpdatedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Value")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Key")
+                        .IsUnique()
+                        .HasFilter("Scope = 'Application'");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.HasIndex("CompanyId", "Key")
+                        .IsUnique()
+                        .HasFilter("Scope = 'Company'");
+
+                    b.HasIndex("UserId", "Key")
+                        .IsUnique()
+                        .HasFilter("Scope = 'User'");
+
+                    b.ToTable("SettingOverrides", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Settings_Owner", "(Scope = 'Application' AND CompanyId IS NULL AND UserId IS NULL) OR (Scope = 'Company' AND CompanyId IS NOT NULL AND UserId IS NULL) OR (Scope = 'User' AND CompanyId IS NULL AND UserId IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_Settings_Value", "length(Key) BETWEEN 1 AND 150 AND (Value IS NULL OR length(Value) <= 800)");
                         });
                 });
 
@@ -2029,6 +2610,130 @@ namespace GTS.Billing.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("GTS.Billing.Domain.TaxClassification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Active")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ShortDescription")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("UpdatedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.HasIndex("CompanyId", "Type", "Code")
+                        .IsUnique();
+
+                    b.ToTable("TaxClassifications", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_TaxClassification_Code", "Code NOT GLOB '*[^0-9]*' AND ((Type='HSN' AND length(Code) IN (2,4,6,8)) OR (Type='SAC' AND length(Code)=6 AND substr(Code,1,2)='99'))");
+                        });
+                });
+
+            modelBuilder.Entity("GTS.Billing.Domain.TaxClassificationRateAssignment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Active")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("ClassificationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Context")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateOnly>("From")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("RateId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateOnly?>("To")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("UpdatedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("CompanyId", "Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.HasIndex("CompanyId", "RateId");
+
+                    b.HasIndex("CompanyId", "ClassificationId", "Context", "From")
+                        .IsUnique();
+
+                    b.ToTable("TaxClassificationRateAssignments", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_TaxAssignment_Dates", "\"To\" IS NULL OR \"To\" > \"From\"");
+                        });
+                });
+
             modelBuilder.Entity("GTS.Billing.Domain.TermsVersion", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2067,13 +2772,133 @@ namespace GTS.Billing.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("GTS.Billing.Domain.UnitOfMeasure", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Active")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("DecimalPrecision")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NormalizedName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Symbol")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UnitType")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("UpdatedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Uqc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.HasIndex("CompanyId", "Code")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyId", "NormalizedName")
+                        .IsUnique();
+
+                    b.ToTable("Units", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Units_Precision", "DecimalPrecision BETWEEN 0 AND 6");
+                        });
+                });
+
             modelBuilder.Entity("GTS.Billing.Domain.User", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("CreatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Department")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Designation")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DisplayName")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Email")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EmployeeCode")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FullName")
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsLocked")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(false);
+
+                    b.Property<DateTime?>("LastPasswordChangedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastSuccessfulLoginUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MobileNumber")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("MustChangePassword")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(false);
 
                     b.Property<string>("NormalizedUsername")
                         .IsRequired()
@@ -2081,6 +2906,12 @@ namespace GTS.Billing.Infrastructure.Migrations
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("UpdatedUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Username")
@@ -2093,8 +2924,14 @@ namespace GTS.Billing.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("EmployeeCode");
+
                     b.HasIndex("NormalizedUsername")
                         .IsUnique();
+
+                    b.HasIndex("UpdatedByUserId");
 
                     b.ToTable("Users", null, t =>
                         {
@@ -2102,6 +2939,32 @@ namespace GTS.Billing.Infrastructure.Migrations
 
                             t.HasCheckConstraint("CK_User_Name", "length(trim(Username)) > 0 AND length(trim(NormalizedUsername)) > 0 AND NormalizedUsername = upper(trim(Username))");
                         });
+                });
+
+            modelBuilder.Entity("GTS.Billing.Domain.UserCompanyAccess", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("UserId", "CompanyId");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.ToTable("UserCompanyAccess", (string)null);
                 });
 
             modelBuilder.Entity("GTS.Billing.Domain.UserPermissionOverride", b =>
@@ -2210,6 +3073,27 @@ namespace GTS.Billing.Infrastructure.Migrations
                     b.HasOne("GTS.Billing.Domain.BackupConfiguration", null)
                         .WithMany()
                         .HasForeignKey("ConfigurationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GTS.Billing.Domain.Brand", b =>
+                {
+                    b.HasOne("GTS.Billing.Domain.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -2450,6 +3334,23 @@ namespace GTS.Billing.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("GTS.Billing.Domain.FinancialYear", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "FinancialYearId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("GTS.Billing.Domain.GstRegistration", null)
                         .WithMany()
                         .HasForeignKey("CompanyId", "GstRegistrationId")
@@ -2460,9 +3361,50 @@ namespace GTS.Billing.Infrastructure.Migrations
 
             modelBuilder.Entity("GTS.Billing.Domain.FinancialYear", b =>
                 {
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("ClosedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("GTS.Billing.Domain.Company", null)
                         .WithMany()
                         .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("ReopenedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("GTS.Billing.Domain.GstRateDefinition", b =>
+                {
+                    b.HasOne("GTS.Billing.Domain.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -2602,6 +3544,62 @@ namespace GTS.Billing.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("GTS.Billing.Domain.ProductMeasureProfile", b =>
+                {
+                    b.HasOne("GTS.Billing.Domain.UnitOfMeasure", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "BaseUnitId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("GTS.Billing.Domain.Brand", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "BrandId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("GTS.Billing.Domain.Product", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ProductId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GTS.Billing.Domain.ProductTaxProfile", b =>
+                {
+                    b.HasOne("GTS.Billing.Domain.TaxClassification", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ClassificationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GTS.Billing.Domain.Product", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ProductId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GTS.Billing.Domain.ProductUnitConversion", b =>
+                {
+                    b.HasOne("GTS.Billing.Domain.Product", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ProductId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GTS.Billing.Domain.UnitOfMeasure", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "UnitId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("GTS.Billing.Domain.RecoveryCode", b =>
                 {
                     b.HasOne("GTS.Billing.Domain.User", null)
@@ -2625,6 +3623,19 @@ namespace GTS.Billing.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("GTS.Billing.Domain.Role", b =>
+                {
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("GTS.Billing.Domain.RolePermission", b =>
                 {
                     b.HasOne("GTS.Billing.Domain.Module", null)
@@ -2640,6 +3651,62 @@ namespace GTS.Billing.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("GTS.Billing.Domain.SalesInvoice", b =>
+                {
+                    b.HasOne("GTS.Billing.Domain.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("FinalizedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GTS.Billing.Domain.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "CustomerId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("GTS.Billing.Domain.FinancialYear", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "FinancialYearId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("GTS.Billing.Domain.DocumentNumberLedger", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "LedgerId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("GTS.Billing.Domain.GstRegistration", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RegistrationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("GTS.Billing.Domain.DocumentNumberingSeries", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "SeriesId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("GTS.Billing.Domain.SessionHistory", b =>
                 {
                     b.HasOne("GTS.Billing.Domain.User", null)
@@ -2647,6 +3714,25 @@ namespace GTS.Billing.Infrastructure.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("GTS.Billing.Domain.SettingOverride", b =>
+                {
+                    b.HasOne("GTS.Billing.Domain.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("GTS.Billing.Domain.SnapshotAsset", b =>
@@ -2681,6 +3767,62 @@ namespace GTS.Billing.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("GTS.Billing.Domain.TaxClassification", b =>
+                {
+                    b.HasOne("GTS.Billing.Domain.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GTS.Billing.Domain.TaxClassificationRateAssignment", b =>
+                {
+                    b.HasOne("GTS.Billing.Domain.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GTS.Billing.Domain.TaxClassification", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ClassificationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GTS.Billing.Domain.GstRateDefinition", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RateId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("GTS.Billing.Domain.TermsVersion", b =>
                 {
                     b.HasOne("GTS.Billing.Domain.User", null)
@@ -2691,6 +3833,61 @@ namespace GTS.Billing.Infrastructure.Migrations
                     b.HasOne("GTS.Billing.Domain.Company", null)
                         .WithMany()
                         .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GTS.Billing.Domain.UnitOfMeasure", b =>
+                {
+                    b.HasOne("GTS.Billing.Domain.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GTS.Billing.Domain.User", b =>
+                {
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("GTS.Billing.Domain.UserCompanyAccess", b =>
+                {
+                    b.HasOne("GTS.Billing.Domain.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GTS.Billing.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

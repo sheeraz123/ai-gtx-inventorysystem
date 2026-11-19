@@ -7,7 +7,9 @@ namespace GTS.Billing.Infrastructure;
 
 public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProductCatalogStore
 {
-    private const int PageSize = 50;
+    internal static bool SameCommercialUnit(string unit,decimal factor,string code,string name,decimal conversionFactor) =>
+        factor==conversionFactor && (CatalogRules.Normalize(unit)==CatalogRules.Normalize(code) ||
+            CatalogRules.Normalize(unit)==CatalogRules.Normalize(name));
 
     public async Task<CatalogResult> ExecuteAsync(CatalogRequest request, AuthenticatedIdentity actor, byte[]? image, CancellationToken ct)
     {
@@ -19,22 +21,47 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
             if (installation.Id != database.ExpectedInstallationId() || installation.DatabaseMode != "PlaintextDevelopment" ||
                 installation.SetupState != "Configured") return new(CompanyOutcome.Unavailable);
             var user = await db.Set<User>().SingleOrDefaultAsync(x => x.Id == actor.UserId, ct);
-            if (user?.IsActive != true || user.Version != actor.Version) return new(CompanyOutcome.SessionRequired);
-            if (!await db.Set<SuperAdminAssignment>().AnyAsync(x => x.UserId == actor.UserId, ct)) return new(CompanyOutcome.Forbidden);
+            if (user?.IsActive != true || user.IsLocked || user.MustChangePassword || user.Version != actor.Version) return new(CompanyOutcome.SessionRequired);
             var company = await db.Set<Company>().Where(x => x.IsActive &&
                 db.Set<CompanySelection>().Any(s => s.CompanyId == x.Id)).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
             if (company is null) return new(CompanyOutcome.NotFound, Message:"Select an active company in Company Master.");
+            var admin=await ScopedAccess.IsSuperAdminAsync(db,actor.UserId,ct);
+            var permissions=admin?null:await ScopedAccess.ResolveAsync(db,actor.UserId,company.Value,ct);
+            var module=request.Products?"Product.":"Category.";
+            bool Can(string action)=>admin || permissions!.Contains(module+action);
+            var required=request.Action switch
+            {
+                CatalogAction.Save=>request.Id is null?"Create":"Edit",
+                CatalogAction.Status=>"StatusChange",
+                _=>"View"
+            };
+            if(!Can("View") || !Can(required)) return new(CompanyOutcome.Forbidden);
+            if(request.TaxSelection is not null &&
+                (request.Action!=CatalogAction.Save || !request.Products || !admin && !permissions!.Contains("GstRate.Assign")))
+                return new(CompanyOutcome.Forbidden);
             if (request.Action != CatalogAction.Context && request.Company != company)
                 return new(CompanyOutcome.Conflict, Message:"Current company changed. Refresh the list.");
             var categories = db.Set<ProductCategory>().Where(x => x.CompanyId == company);
             var products = db.Set<Product>().Where(x => x.CompanyId == company);
+            var profiles = db.Set<ProductMeasureProfile>().Where(x => x.CompanyId == company);
+            var brands = db.Set<Brand>().Where(x => x.CompanyId == company);
+            var units = db.Set<UnitOfMeasure>().Where(x => x.CompanyId == company);
+            var conversions = db.Set<ProductUnitConversion>().Where(x => x.CompanyId == company && x.Active);
             if (request.Action == CatalogAction.Context)
-                return new(CompanyOutcome.Success, company, Categories: await Choices(categories, ct));
+                return new(CompanyOutcome.Success, company, Categories: await Choices(categories, ct),
+                    Brands:request.Products ? await brands.OrderBy(x=>x.Name)
+                        .Select(x=>new MeasureChoice(x.Id,x.Code,x.Name,x.Active)).ToArrayAsync(ct) : []);
             if (request.Action is CatalogAction.List or CatalogAction.Lookup)
-                return await List(request, company.Value, categories, products, ct);
+            {
+                var preferences=request.Products && !string.IsNullOrWhiteSpace(request.Search)
+                    ?await SettingsStore.ReadCompanyAsync(db,company.Value,ct):ResolvedSettings.Empty;
+                return await List(db,request, company.Value, categories, products, profiles, brands, units, conversions,
+                    preferences.Get(SettingsRegistry.ProductSearch),ct);
+            }
             var result = request.Products
-                ? await ProductAsync(db, request, company.Value, actor.UserId, categories, products, image, ct)
-                : await CategoryAsync(db, request, company.Value, actor.UserId, categories, ct);
+                ? await ProductAsync(db, request, company.Value, actor.UserId, categories, products, image,
+                    Can("StatusChange"),Can("PricingEdit"),ct)
+                : await CategoryAsync(db, request, company.Value, actor.UserId, categories,Can("StatusChange"),ct);
             if (result.Outcome == CompanyOutcome.Success && request.Action is CatalogAction.Save or CatalogAction.Status && !result.DuplicateWarning)
             {
                 await db.SaveChangesAsync(ct);
@@ -64,42 +91,60 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
         }).ToArray();
     }
 
-    private static async Task<CatalogResult> List(CatalogRequest request, Guid company, IQueryable<ProductCategory> categories,
-        IQueryable<Product> products, CancellationToken ct)
+    private static async Task<CatalogResult> List(BillingDbContext db,CatalogRequest request, Guid company, IQueryable<ProductCategory> categories,
+        IQueryable<Product> products,IQueryable<ProductMeasureProfile> profiles,IQueryable<Brand> brands,
+        IQueryable<UnitOfMeasure> units,IQueryable<ProductUnitConversion> conversions,string searchFields,CancellationToken ct)
     {
         var search = CatalogRules.Normalize(request.Search);
-        var skip = request.Page * PageSize;
+        var pageSize=request.PageSize;
+        var skip=request.Page*pageSize;
         if (request.Products)
         {
+            var taxProfiles=db.Set<ProductTaxProfile>().Where(x=>x.CompanyId==company);
+            var classifications=db.Set<TaxClassification>().Where(x=>x.CompanyId==company);
             if (request.Action == CatalogAction.Lookup) products = products.Where(x => x.Active);
             else if (request.Active is bool active) products = products.Where(x => x.Active == active);
             if (request.Category is Guid category) products = products.Where(x => x.CategoryId == category);
+            if (request.BrandId is Guid brand) products = products.Where(x => profiles.Any(p => p.ProductId == x.Id && p.BrandId == brand));
             if (request.Kind is { Length: > 0 } kind) products = products.Where(x => x.Kind == kind);
             if (search.Length >= 3 || request.Action == CatalogAction.Lookup && search.Length > 0)
-                products = products.Where(x => x.Code.Contains(search) || x.NormalizedName.Contains(search) ||
-                    x.ShortName != null && x.ShortName.ToUpper().Contains(search) || x.Sku != null && x.Sku.ToUpper().Contains(search) ||
-                    x.Barcode != null && x.Barcode.ToUpper().Contains(search) || x.Hsn != null && x.Hsn.Contains(search));
-            var rows = await products.OrderBy(x => x.Code).Skip(skip).Take(PageSize + 1)
+            {
+                var matchNames=searchFields!="Code, SKU and barcode";
+                var matchIds=searchFields!="Code and names";
+                var matchHsn=searchFields=="All listed fields";
+                products=products.Where(x=>x.Code.Contains(search) || matchNames&&(x.NormalizedName.Contains(search) ||
+                    x.ShortName!=null && x.ShortName.ToUpper().Contains(search)) || matchIds&&(x.Sku!=null && x.Sku.ToUpper().Contains(search) ||
+                    x.Barcode!=null && x.Barcode.ToUpper().Contains(search)) || matchHsn && x.Hsn!=null && x.Hsn.Contains(search));
+            }
+            var rows = await products.OrderBy(x => x.Code).Skip(skip).Take(pageSize + 1)
                 .Select(x => new CatalogRow(x.Id, x.Version, x.Code, x.Name, x.Active,
                     categories.Where(c => c.Id == x.CategoryId).Select(c => c.Name).FirstOrDefault(),
-                    null, null, x.Brand, x.Kind, x.BaseUnit, x.Hsn, x.SalesRate, x.Mrp, x.StockTracked,
-                    x.SalesUnit ?? x.BaseUnit, x.GstRate, x.TaxExempt)).ToListAsync(ct);
-            return new(CompanyOutcome.Success, company, rows.Take(PageSize).ToArray(), More:rows.Count > PageSize);
+                    null, null, (from p in profiles join b in brands on p.BrandId equals (Guid?)b.Id
+                        where p.ProductId==x.Id select b.Name).FirstOrDefault() ?? x.Brand, x.Kind,
+                    (from p in profiles join u in units on p.BaseUnitId equals (Guid?)u.Id
+                        where p.ProductId==x.Id select u.Code).FirstOrDefault() ?? x.BaseUnit,
+                    (from p in taxProfiles join t in classifications on p.ClassificationId equals t.Id
+                        where p.ProductId==x.Id select t.Code).FirstOrDefault() ?? x.Hsn,
+                    x.SalesRate, x.Mrp, x.StockTracked,
+                    (from c in conversions join u in units on c.UnitId equals u.Id
+                        where c.ProductId==x.Id && c.DefaultSales select u.Code).FirstOrDefault() ?? x.SalesUnit ?? x.BaseUnit,
+                    x.GstRate, x.TaxExempt,x.Currency,x.Sku,x.Barcode)).ToListAsync(ct);
+            return new(CompanyOutcome.Success, company, rows.Take(pageSize).ToArray(), More:rows.Count > pageSize);
         }
         var filtered = categories;
         if (request.Active is bool categoryActive) filtered = filtered.Where(x => x.Active == categoryActive);
         if (search.Length >= 3)
             filtered = filtered.Where(x => x.Code.Contains(search) || x.NormalizedName.Contains(search) ||
                 x.Description != null && x.Description.ToUpper().Contains(search));
-        var list = await filtered.OrderBy(x => x.SortOrder).ThenBy(x => x.Code).Skip(skip).Take(PageSize + 1)
+        var list = await filtered.OrderBy(x => x.SortOrder).ThenBy(x => x.Code).Skip(skip).Take(pageSize + 1)
             .Select(x => new CatalogRow(x.Id, x.Version, x.Code, x.Name, x.Active,
                 categories.Where(c => c.Id == x.ParentId).Select(c => c.Name).FirstOrDefault(),
-                x.Description, x.SortOrder, null, null, null, null, null, null, null, null, null, null)).ToListAsync(ct);
-        return new(CompanyOutcome.Success, company, list.Take(PageSize).ToArray(), More:list.Count > PageSize);
+                x.Description, x.SortOrder, null, null, null, null, null, null, null, null, null, null,null,null,null)).ToListAsync(ct);
+        return new(CompanyOutcome.Success, company, list.Take(pageSize).ToArray(), More:list.Count > pageSize);
     }
 
     private static async Task<CatalogResult> CategoryAsync(BillingDbContext db, CatalogRequest request, Guid company, Guid actor,
-        IQueryable<ProductCategory> categories, CancellationToken ct)
+        IQueryable<ProductCategory> categories,bool canChangeStatus,CancellationToken ct)
     {
         var category = await categories.SingleOrDefaultAsync(x => x.Id == request.Id, ct);
         if (request.Id.HasValue && category is null) return new(CompanyOutcome.NotFound);
@@ -121,6 +166,7 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
         var input = request.CategoryDraft;
         var parentId = request.Action == CatalogAction.Save ? input!.ParentId : category.ParentId;
         var active = request.Action == CatalogAction.Save ? input!.Active : request.Active!.Value;
+        if (!canChangeStatus && active!=category.Active) return new(CompanyOutcome.Forbidden);
         var code = input is null ? category.Code : input.Code.Trim().ToUpperInvariant();
         var name = input is null ? category.Name : input.Name.Trim();
         var normalized = CatalogRules.Normalize(name);
@@ -158,8 +204,9 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
         return new(CompanyOutcome.Success, company);
     }
 
-    private static async Task<CatalogResult> ProductAsync(BillingDbContext db, CatalogRequest request, Guid company, Guid actor,
-        IQueryable<ProductCategory> categories, IQueryable<Product> products, byte[]? image, CancellationToken ct)
+    internal static async Task<CatalogResult> ProductAsync(BillingDbContext db, CatalogRequest request, Guid company, Guid actor,
+        IQueryable<ProductCategory> categories, IQueryable<Product> products, byte[]? image,
+        bool canChangeStatus,bool canEditPricing,CancellationToken ct)
     {
         // Load the bounded image payload only for a single master detail.
         var product = request.Id is Guid id ? await products.SingleOrDefaultAsync(x => x.Id == id, ct) : null;
@@ -226,16 +273,67 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
             var rate = purchase ? product.PurchaseRate :
                 request.Unit == CatalogUnit.Base && CatalogRules.Normalize(product.SalesUnit ?? product.BaseUnit) != CatalogRules.Normalize(product.BaseUnit)
                 ? null : product.SalesRate;
+            var profile = await db.Set<ProductMeasureProfile>().SingleOrDefaultAsync(p=>p.CompanyId==company && p.ProductId==product.Id,ct);
+            var brand = profile?.BrandId is Guid brandId ? await db.Set<Brand>()
+                .SingleAsync(x=>x.CompanyId==company && x.Id==brandId,ct) : null;
+            var conversions = db.Set<ProductUnitConversion>().Where(x=>x.CompanyId==company && x.ProductId==product.Id && x.Active);
+            var baseUnitId = profile?.BaseUnitId;
+            var conversion = request.SelectedUnitId is Guid selected
+                ? await conversions.SingleOrDefaultAsync(x=>x.UnitId==selected,ct)
+                : request.Unit switch
+                {
+                    CatalogUnit.Purchase => await conversions.SingleOrDefaultAsync(x=>x.DefaultPurchase,ct),
+                    CatalogUnit.Sales => await conversions.SingleOrDefaultAsync(x=>x.DefaultSales,ct),
+                    _ => await conversions.SingleOrDefaultAsync(x=>x.UnitId==baseUnitId,ct)
+                };
+            if (request.SelectedUnitId.HasValue && conversion is null)
+                return new(CompanyOutcome.InvalidInput, Message:"Choose an active unit configured for this product.");
+            if (conversion is null && baseUnitId is Guid linkedBase)
+            {
+                var basis = await db.Set<UnitOfMeasure>().SingleAsync(x=>x.CompanyId==company && x.Id==linkedBase,ct);
+                var original = CatalogRules.Normalize(product.BaseUnit);
+                if (CatalogRules.Normalize(basis.Code)!=original && CatalogRules.Normalize(basis.Name)!=original)
+                    return new(CompanyOutcome.InvalidInput, Message:"Configure a default conversion for the new base unit before using it in a document.");
+            }
+            UnitOfMeasure? master = null;
+            if (conversion is not null)
+            {
+                master = await db.Set<UnitOfMeasure>().SingleAsync(x=>x.CompanyId==company && x.Id==conversion.UnitId,ct);
+                if (!master.Active) return new(CompanyOutcome.InvalidInput, Message:"The selected unit is inactive.");
+                // Commercial rates entered for a different unit or factor require explicit pricing in a future document.
+                if (!SameCommercialUnit(unit,factor,master.Code,master.Name,conversion.FactorToBaseUnit) ||
+                    (request.SelectedUnitId.HasValue && !conversion.DefaultSales)) rate=null;
+                unit = master.Code;
+                factor = conversion.FactorToBaseUnit;
+            }
+            TaxSnapshot? tax=null;
+            if (request.TaxDate is DateOnly date)
+            {
+                var resolved=await new CompanyTaxCatalog(db,company).ResolveProductAsync(product,date,ct);
+                if(resolved.Outcome!=CompanyOutcome.Success)
+                {
+                    var error=resolved.Message??"Choose an applicable HSN/SAC and GST profile.";
+                    return new(resolved.Outcome,Message:error,Errors:new Dictionary<string,string>{{"TaxAssignment",error}});
+                }
+                tax=resolved.Snapshot;
+            }
             return new(CompanyOutcome.Success, company, Snapshot:new(company, product.Id, product.Version, product.Code, product.Name,
-                product.Description, product.Kind, product.Sku, product.Barcode, product.Hsn, unit, product.QuantityPrecision,
+                product.Description, product.Kind, product.Sku, product.Barcode, tax?.Code??product.Hsn, unit, master?.DecimalPrecision ?? product.QuantityPrecision,
                 factor, rate, product.Currency, purchase ? product.PurchaseInclusive : product.SalesInclusive,
-                product.GstRate, product.TaxExempt, product.TaxNotes));
+                product.GstRate, product.TaxExempt, product.TaxNotes, brand?.Id, brand?.Name ?? product.Brand,
+                master?.Id, master?.Symbol, master?.Uqc, profile?.Classification,tax,master?.Name??unit, product.Mrp));
         }
         if (product is not null && product.Version != request.Version) return new(CompanyOutcome.Conflict);
         var isNew = product is null;
         if (request.Action == CatalogAction.Status && !isNew) product!.Active = request.Active!.Value;
         else if (request.Action == CatalogAction.Save && request.ProductDraft is { } input)
         {
+            if (!canChangeStatus && input.Active!=(product?.Active ?? true)) return new(CompanyOutcome.Forbidden);
+            if (!canEditPricing && (input.PurchaseRate!=product?.PurchaseRate || input.SalesRate!=product?.SalesRate ||
+                input.Mrp!=product?.Mrp || input.PricingDate!=product?.PricingDate ||
+                input.Currency.Trim().ToUpperInvariant()!=(product?.Currency ?? "INR") ||
+                input.SalesInclusive!=(product?.SalesInclusive ?? false) || input.PurchaseInclusive!=(product?.PurchaseInclusive ?? false)))
+                return new(CompanyOutcome.Forbidden);
             var target = await categories.SingleOrDefaultAsync(x => x.Id == input.CategoryId, ct);
             if (target is null || !target.Active && (isNew || product!.CategoryId != input.CategoryId))
                 return Invalid("CategoryId", "Choose an active category from the current company.");
@@ -255,6 +353,25 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
                 return new(CompanyOutcome.Conflict, company, Message:"A product with the same name, SKU or barcode exists. Save a separate record?", DuplicateWarning:true);
 
             product ??= new Product { CompanyId=company, CreatedUtc=DateTime.UtcNow, CreatedByUserId=actor };
+            ProductTaxProfile? existingTax=null;
+            if (!isNew)
+            {
+                existingTax=await db.Set<ProductTaxProfile>().SingleOrDefaultAsync(p=>p.CompanyId==company && p.ProductId==product.Id,ct);
+                var linkedTax=existingTax is not null;
+                if(linkedTax && input.Kind.Trim()!=product.Kind)
+                    return Invalid("Kind","This product has a linked HSN/SAC classification. Its goods/service type is fixed.");
+                if(linkedTax && (CatalogRules.Optional(input.Hsn)!=product.Hsn || input.GstRate!=product.GstRate || input.TaxExempt!=product.TaxExempt))
+                    return Invalid("Hsn","Use Tax profile to change the classification or rate context. Original tax values are retained.");
+                var measureProfile = await db.Set<ProductMeasureProfile>()
+                    .SingleOrDefaultAsync(p=>p.CompanyId==company && p.ProductId==product.Id,ct);
+                if (measureProfile?.BrandId is not null && CatalogRules.Optional(input.Brand)!=product.Brand)
+                    return Invalid("Brand", "Change the linked brand through Edit units and brand. The original value is retained.");
+                if (measureProfile?.BaseUnitId is not null &&
+                    (input.BaseUnit.Trim()!=product.BaseUnit || CatalogRules.Optional(input.SalesUnit)!=product.SalesUnit ||
+                     CatalogRules.Optional(input.PurchaseUnit)!=product.PurchaseUnit || input.SalesFactor!=product.SalesFactor ||
+                     input.PurchaseFactor!=product.PurchaseFactor || input.QuantityPrecision!=product.QuantityPrecision))
+                    return Invalid("BaseUnit", "Change linked units through Edit units and brand. The original units and factors are retained.");
+            }
             product.CategoryId=input.CategoryId;
             product.NormalizedName=name;
             product.Code=code;
@@ -295,6 +412,11 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
             product.Remarks=CatalogRules.Optional(input.Remarks);
             if (image is not null || request.RemoveImage) product.Image=image;
             if (isNew) db.Add(product);
+            if(request.TaxSelection is { } requestedTax)
+            {
+                var linked=await new CompanyTaxCatalog(db,company).StageProductProfileAsync(product,existingTax,requestedTax,actor,ct);
+                if(linked.Outcome!=CompanyOutcome.Success) return Invalid("TaxSelection",linked.Message??"Review the tax profile.");
+            }
         }
         else return new(CompanyOutcome.NotFound);
         product!.UpdatedUtc=DateTime.UtcNow;

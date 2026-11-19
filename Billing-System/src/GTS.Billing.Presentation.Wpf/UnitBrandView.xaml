@@ -1,0 +1,46 @@
+<UserControl x:Class="GTS.Billing.Presentation.Wpf.UnitBrandView"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:GTS.Billing.Presentation.Wpf">
+ <UserControl.Resources>
+  <Style x:Key="MasterToolbarButton" TargetType="Button" BasedOn="{StaticResource BillingButton}">
+   <Setter Property="MinHeight" Value="34"/>
+   <Setter Property="Padding" Value="12,5"/>
+   <Setter Property="Margin" Value="0,0,8,6"/>
+  </Style>
+ </UserControl.Resources>
+ <DockPanel Margin="16">
+  <StackPanel DockPanel.Dock="Top">
+   <TextBlock Text="{Binding Title}" FontSize="26" FontWeight="SemiBold"/>
+   <local:NoticeBanner Text="{Binding Message}" Margin="0,5" />
+   <WrapPanel Margin="0,4,0,0">
+    <TextBox Width="240" Height="34" Margin="0,0,8,6" Padding="7,4"
+     VerticalContentAlignment="Center" MaxLength="100" AutomationProperties.Name="Search by code or name"
+     ToolTip="Search starts after three characters" Text="{Binding Search,UpdateSourceTrigger=PropertyChanged}"/>
+    <ComboBox Width="145" Height="34" Margin="0,0,8,6" Padding="7,4"
+     ItemsSource="{Binding Statuses}" SelectedItem="{Binding Filter}" DisplayMemberPath="Label"
+     AutomationProperties.Name="Status filter"/>
+    <Button Style="{StaticResource MasterToolbarButton}" Content="{DynamicResource Display.Common.Refresh}" Command="{Binding RefreshCommand}"/>
+   </WrapPanel>
+   <WrapPanel Margin="0,4">
+    <Button Style="{StaticResource MasterToolbarButton}" Content="{DynamicResource Display.Common.Add}" Command="{Binding AddCommand}"/>
+    <Button Style="{StaticResource MasterToolbarButton}" Content="{DynamicResource Display.Common.View}" Command="{Binding ViewCommand}"/>
+    <Button Style="{StaticResource MasterToolbarButton}" Content="{DynamicResource Display.Common.Edit}" Command="{Binding EditCommand}"/>
+    <Button Style="{StaticResource MasterToolbarButton}" Content="{DynamicResource Display.Catalog.Content.ActivateDeactivate}" Command="{Binding StatusCommand}"/>
+   </WrapPanel>
+  </StackPanel>
+  <DataGrid ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}" IsReadOnly="True" AutoGenerateColumns="False"
+   CanUserAddRows="False" MinRowHeight="32" SelectionMode="Single"
+   Background="{DynamicResource Palette.Surface}" RowBackground="{DynamicResource Palette.Surface}"
+   Foreground="{DynamicResource Palette.Text}" BorderBrush="{DynamicResource Palette.GridLine}"
+   local:MasterGridInteraction.ViewRowCommand="{Binding ViewCommand}">
+   <DataGrid.Columns>
+    <DataGridTextColumn Header="Code" local:SettingsDisplay.LabelKey="UnitBrand.Code" Binding="{Binding Code}" Width="110"/>
+    <DataGridTextColumn Header="Name" local:SettingsDisplay.LabelKey="UnitBrand.Name" Binding="{Binding Name}" Width="2*" MinWidth="130"/>
+    <DataGridTextColumn Header="Description" Binding="{Binding Description}" Width="3*" MinWidth="155"/>
+    <DataGridTextColumn Header="Sort order" Binding="{Binding SortOrder}"/>
+    <DataGridCheckBoxColumn Header="Active" Binding="{Binding Active,Mode=OneWay}"/>
+   </DataGrid.Columns>
+  </DataGrid>
+ </DockPanel>
+</UserControl>

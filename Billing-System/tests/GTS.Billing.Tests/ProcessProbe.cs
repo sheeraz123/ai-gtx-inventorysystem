@@ -65,6 +65,12 @@ internal static class ProcessProbe
                         Console.Out.Flush();
                         await Task.Run(() => Console.ReadLine());
                         await vm.LogoutAsync();
+                        if(vm.Page!=AuthenticationPage.Login || vm.Lifetime.IsStopping)
+                            Environment.FailFast("Sign out must return to login without shutting down.");
+                        Console.WriteLine("SignedOut");
+                        Console.Out.Flush();
+                        await Task.Run(() => Console.ReadLine());
+                        await vm.Lifetime.ShutdownAsync();
                     }
                     catch { Environment.FailFast("Synthetic logout smoke failed."); }
                 };

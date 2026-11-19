@@ -5,18 +5,18 @@
  <UserControl.Resources>
   <BooleanToVisibilityConverter x:Key="Visible"/>
   <DataTemplate DataType="{x:Type local:CustomerField}">
-   <StackPanel Margin="5,5">
+   <StackPanel Margin="5,5" Visibility="{Binding IsVisible,Converter={StaticResource Visible}}">
     <TextBlock Text="{Binding Label}" FontWeight="SemiBold" Margin="0,0,0,4"/>
     <TextBox Text="{Binding Text,UpdateSourceTrigger=PropertyChanged}" IsReadOnly="{Binding ReadOnly}" MinHeight="30" MaxHeight="110"
       Padding="5" MaxLength="4000" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
       AutomationProperties.Name="{Binding Label}" Visibility="{Binding IsText,Converter={StaticResource Visible}}"/>
     <ComboBox ItemsSource="{Binding Choices}" DisplayMemberPath="Label" SelectedValuePath="Key"
       SelectedValue="{Binding Text,Mode=TwoWay,UpdateSourceTrigger=PropertyChanged}" MinHeight="30"
-      IsTextSearchEnabled="True" TextSearch.TextPath="Label" AutomationProperties.Name="{Binding Label}"
+      IsTextSearchEnabled="True" TextSearch.TextPath="Label" AutomationProperties.Name="{Binding Label}" IsEnabled="{Binding CanInput}"
       Visibility="{Binding IsChoice,Converter={StaticResource Visible}}"/>
-    <DatePicker SelectedDate="{Binding DateValue,Mode=TwoWay,UpdateSourceTrigger=PropertyChanged}"
+    <DatePicker SelectedDate="{Binding DateValue,Mode=TwoWay,UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CanInput}"
       AutomationProperties.Name="{Binding Label}" Visibility="{Binding IsDate,Converter={StaticResource Visible}}"/>
-    <CheckBox IsChecked="{Binding Checked,Mode=TwoWay,UpdateSourceTrigger=PropertyChanged}" Content="{Binding Label}"
+    <CheckBox IsChecked="{Binding Checked,Mode=TwoWay,UpdateSourceTrigger=PropertyChanged}" Content="{Binding Label}" IsEnabled="{Binding CanInput}"
       AutomationProperties.Name="{Binding Label}" Visibility="{Binding IsCheck,Converter={StaticResource Visible}}"/>
     <TextBlock Text="{Binding Error}" Foreground="#A31621" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
    </StackPanel>
@@ -25,7 +25,7 @@
  <DockPanel Margin="16">
   <StackPanel DockPanel.Dock="Top">
    <TextBlock Text="{Binding Title}" FontSize="26" FontWeight="SemiBold"/>
-   <TextBlock Text="{Binding Message}" Margin="0,6" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+   <local:NoticeBanner Text="{Binding Message}" Margin="0,6" />
    <ProgressBar IsIndeterminate="True" Height="4" Visibility="{Binding Busy,Converter={StaticResource Visible}}"/>
   </StackPanel>
   <Grid>
@@ -39,97 +39,133 @@
        AutomationProperties.Name="Search records" Text="{Binding Search,UpdateSourceTrigger=PropertyChanged}"/>
       <ComboBox Margin="5,0" Width="130" ItemsSource="{Binding Statuses}" SelectedItem="{Binding StatusFilter}"
        DisplayMemberPath="Label" AutomationProperties.Name="Status filter"/>
-      <ComboBox Width="175" ItemsSource="{Binding FilterChoices}" SelectedItem="{Binding CategoryFilter}" DisplayMemberPath="Label"
+      <local:SearchableComboBox Width="175" SearchItemsSource="{Binding FilterChoices}" SelectedItem="{Binding CategoryFilter}" DisplayMemberPath="Label"
        Visibility="{Binding Products,Converter={StaticResource Visible}}" AutomationProperties.Name="Category filter"/>
       <ComboBox Margin="5,0" Width="100" ItemsSource="{Binding Kinds}" SelectedItem="{Binding KindFilter}"
        Visibility="{Binding Products,Converter={StaticResource Visible}}" AutomationProperties.Name="Product type filter (blank means all)"/>
-      <Button Content="_Refresh" Command="{Binding RefreshCommand}" Padding="8,4"/>
+      <local:SearchableComboBox Width="155" SearchItemsSource="{Binding BrandChoices}" SelectedItem="{Binding BrandFilter}" DisplayMemberPath="Label"
+       Visibility="{Binding Products,Converter={StaticResource Visible}}" AutomationProperties.Name="Brand filter"/>
+      <Button Content="{DynamicResource Display.Common.Refresh}" Command="{Binding RefreshCommand}" Padding="8,4"/>
      </WrapPanel>
      <WrapPanel Margin="0,3,0,8">
-      <Button Content="_Add" Command="{Binding AddCommand}" IsEnabled="{Binding CanBrowse}" Padding="10,5"/>
-      <Button Content="_View" Command="{Binding ViewCommand}" Margin="5,0" Padding="10,5"/>
-      <Button Content="_Edit" Command="{Binding EditCommand}" Padding="10,5"/>
-      <Button Content="Activate / _Deactivate" Command="{Binding ChangeStatusCommand}" Margin="5,0" Padding="10,5"/>
+      <Button Content="{DynamicResource Display.Common.Add}" Command="{Binding AddCommand}" IsEnabled="{Binding CanAdd}" Padding="10,5"/>
+      <Button Content="{DynamicResource Display.Common.View}" Command="{Binding ViewCommand}" Margin="5,0" Padding="10,5"/>
+      <Button Content="{DynamicResource Display.Common.Edit}" Command="{Binding EditCommand}" Padding="10,5"/>
+      <Button Content="{DynamicResource Display.Catalog.Content.ActivateDeactivate}" Command="{Binding ChangeStatusCommand}" Margin="5,0" Padding="10,5"/>
+      <Button Content="{DynamicResource Display.UnitBrand.ProductLinks}" Command="{Binding ViewMeasuresCommand}"
+       Visibility="{Binding Products,Converter={StaticResource Visible}}" Padding="10,5"/>
+      <Button Content="Edit units and brand" Command="{Binding EditMeasuresCommand}"
+       Visibility="{Binding Products,Converter={StaticResource Visible}}" Margin="5,0" Padding="10,5"/>
      </WrapPanel>
     </StackPanel>
     <WrapPanel DockPanel.Dock="Bottom" Margin="0,8">
-     <Button Content="Previous" Command="{Binding PreviousCommand}"/>
+     <Button Content="{DynamicResource Display.Catalog.Content.Previous}" Command="{Binding PreviousCommand}"/>
      <TextBlock Margin="8,0" Text="{Binding PageLabel}"/>
-     <Button Content="Next" Command="{Binding NextCommand}"/>
+     <Button Content="{DynamicResource Display.Catalog.Content.Next}" Command="{Binding NextCommand}"/>
     </WrapPanel>
     <Grid>
      <DataGrid ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}" IsReadOnly="True" AutoGenerateColumns="False"
-      CanUserAddRows="False" SelectionMode="Single" local:MasterGridInteraction.ViewRowCommand="{Binding ViewCommand}" AutomationProperties.Name="Product categories">
+      CanUserAddRows="False" SelectionMode="Single" local:MasterGridInteraction.ViewRowCommand="{Binding ViewCommand}" AutomationProperties.Name="Product categories" local:SettingsDisplay.GridId="Categories">
       <DataGrid.Style><Style TargetType="DataGrid"><Style.Triggers>
        <DataTrigger Binding="{Binding Products}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
       </Style.Triggers></Style></DataGrid.Style>
       <DataGrid.Columns>
-        <DataGridTextColumn Header="Code" Binding="{Binding Code}"/>
-        <DataGridTextColumn Header="Name" Binding="{Binding Name}"/>
-        <DataGridTextColumn Header="Parent category" Binding="{Binding Category}"/>
-        <DataGridTextColumn Header="Description" Binding="{Binding Description}"/>
-        <DataGridTextColumn Header="Sort order" Binding="{Binding SortOrder}"/>
-        <DataGridTextColumn Header="Status" Binding="{Binding Status}"/>
+        <DataGridTextColumn Header="Code" local:SettingsDisplay.LabelKey="Catalog.Grid.Code" Binding="{Binding Code}"/>
+        <DataGridTextColumn Header="Name" local:SettingsDisplay.LabelKey="Catalog.Grid.Name" Binding="{Binding Name}"/>
+        <DataGridTextColumn Header="Parent category" local:SettingsDisplay.LabelKey="Catalog.Grid.ParentCategory" Binding="{Binding Category}"/>
+        <DataGridTextColumn Header="Description" local:SettingsDisplay.LabelKey="Catalog.Grid.Description" Binding="{Binding Description}"/>
+        <DataGridTextColumn Header="Sort order" local:SettingsDisplay.LabelKey="Catalog.Grid.SortOrder" Binding="{Binding SortOrder}"/>
+        <DataGridTextColumn Header="Status" local:SettingsDisplay.LabelKey="Catalog.Grid.Status" Binding="{Binding Status}"/>
       </DataGrid.Columns>
      </DataGrid>
      <DataGrid ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}" IsReadOnly="True" AutoGenerateColumns="False"
       CanUserAddRows="False" SelectionMode="Single" local:MasterGridInteraction.ViewRowCommand="{Binding ViewCommand}"
-      Visibility="{Binding Products,Converter={StaticResource Visible}}" AutomationProperties.Name="Products">
+      Visibility="{Binding Products,Converter={StaticResource Visible}}" AutomationProperties.Name="Products" local:SettingsDisplay.GridId="Products">
       <DataGrid.Columns>
-        <DataGridTextColumn Header="Code" Binding="{Binding Code}"/>
-        <DataGridTextColumn Header="Name" Binding="{Binding Name}"/>
-        <DataGridTextColumn Header="Category" Binding="{Binding Category}"/>
-        <DataGridTextColumn Header="Brand" Binding="{Binding Brand}"/>
-        <DataGridTextColumn Header="Type" Binding="{Binding Kind}"/>
-        <DataGridTextColumn Header="Base unit" Binding="{Binding BaseUnit}"/>
-        <DataGridTextColumn Header="HSN / SAC" Binding="{Binding Hsn}"/>
-        <DataGridTextColumn Header="Sales rate" Binding="{Binding SalesRate}"/>
-        <DataGridTextColumn Header="MRP" Binding="{Binding Mrp}"/>
-        <DataGridCheckBoxColumn Header="Stock tracked" Binding="{Binding StockTracked}"/>
-        <DataGridTextColumn Header="Status" Binding="{Binding Status}"/>
+        <DataGridTextColumn Header="Code" local:SettingsDisplay.LabelKey="Catalog.Grid.Code" Binding="{Binding Code}"/>
+        <DataGridTextColumn Header="Name" local:SettingsDisplay.LabelKey="Catalog.Grid.Name" Binding="{Binding Name}"/>
+        <DataGridTextColumn Header="Category" local:SettingsDisplay.LabelKey="Catalog.Grid.Category" Binding="{Binding Category}"/>
+        <DataGridTextColumn Header="Brand" local:SettingsDisplay.LabelKey="Catalog.Grid.Brand" Binding="{Binding Brand}"/>
+        <DataGridTextColumn Header="Type" local:SettingsDisplay.LabelKey="Catalog.Grid.Type" Binding="{Binding Kind}"/>
+        <DataGridTextColumn Header="Base unit" local:SettingsDisplay.LabelKey="Catalog.Grid.BaseUnit" Binding="{Binding BaseUnit}"/>
+        <DataGridTextColumn Header="HSN / SAC" local:SettingsDisplay.LabelKey="Catalog.Grid.HSNSAC" Binding="{Binding Hsn}"/>
+        <DataGridTextColumn Header="SKU" local:SettingsDisplay.LabelKey="Catalog.Grid.SKU" Binding="{Binding Sku}"/>
+        <DataGridTextColumn Header="Barcode" local:SettingsDisplay.LabelKey="Catalog.Grid.Barcode" Binding="{Binding Barcode}"/>
+        <DataGridTextColumn Header="Sales rate" local:SettingsDisplay.LabelKey="Catalog.Grid.SalesRate" Binding="{Binding SalesRate}"/>
+        <DataGridTextColumn Header="MRP" local:SettingsDisplay.LabelKey="Catalog.Grid.MRP" Binding="{Binding Mrp}"/>
+        <DataGridCheckBoxColumn Header="Stock tracked" local:SettingsDisplay.LabelKey="Catalog.Grid.StockTracked" Binding="{Binding StockTracked}"/>
+        <DataGridTextColumn Header="Status" local:SettingsDisplay.LabelKey="Catalog.Grid.Status" Binding="{Binding Status}"/>
       </DataGrid.Columns>
      </DataGrid>
     </Grid>
    </DockPanel>
-   <Border Background="#F3F5F8" Visibility="{Binding EditorOpen,Converter={StaticResource Visible}}" Padding="10">
+   <Border Background="{DynamicResource Palette.Canvas}" Visibility="{Binding EditorOpen,Converter={StaticResource Visible}}" Padding="10">
     <DockPanel>
      <WrapPanel DockPanel.Dock="Bottom" Margin="0,8">
-      <Button Content="_Edit" Command="{Binding EditCommand}" Visibility="{Binding ViewOnly,Converter={StaticResource Visible}}" Padding="10,5"/>
-      <Button Content="_Save" Command="{Binding SaveCommand}" IsEnabled="{Binding CanSave}" Padding="10,5">
+      <Button Content="{DynamicResource Display.Common.Edit}" Command="{Binding EditCommand}" Visibility="{Binding ViewOnly,Converter={StaticResource Visible}}" Padding="10,5"/>
+      <Button Content="{DynamicResource Display.Common.Save}" Command="{Binding SaveCommand}" IsEnabled="{Binding CanSave}" Padding="10,5">
        <Button.Style><Style TargetType="Button"><Style.Triggers>
         <DataTrigger Binding="{Binding ViewOnly}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
        </Style.Triggers></Style></Button.Style>
       </Button>
       <Button Click="CloseEditor" Margin="6,0" Padding="10,5">
-       <Button.Style><Style TargetType="Button"><Setter Property="Content" Value="_Cancel"/><Style.Triggers>
-        <DataTrigger Binding="{Binding ViewOnly}" Value="True"><Setter Property="Content" Value="_Close"/></DataTrigger>
+       <Button.Style><Style TargetType="Button"><Setter Property="Content" Value="{DynamicResource Display.Common.Cancel}"/><Style.Triggers>
+        <DataTrigger Binding="{Binding ViewOnly}" Value="True"><Setter Property="Content" Value="{DynamicResource Display.Common.Close}"/></DataTrigger>
        </Style.Triggers></Style></Button.Style>
       </Button>
      </WrapPanel>
      <ScrollViewer VerticalScrollBarVisibility="Auto">
       <StackPanel>
-       <StackPanel IsEnabled="{Binding CanSave}">
+       <StackPanel>
         <TextBlock FontWeight="SemiBold">
-         <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Text" Value="Parent category"/><Style.Triggers>
-          <DataTrigger Binding="{Binding Products}" Value="True"><Setter Property="Text" Value="Category *"/></DataTrigger>
+         <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Text" Value="{DynamicResource Display.Catalog.Value.ParentCategory}"/><Style.Triggers>
+          <DataTrigger Binding="{Binding Products}" Value="True"><Setter Property="Text" Value="{DynamicResource Display.Catalog.Value.Category}"/></DataTrigger>
          </Style.Triggers></Style></TextBlock.Style>
         </TextBlock>
-        <ComboBox ItemsSource="{Binding Choices}" SelectedItem="{Binding Link}" DisplayMemberPath="Label" TextSearch.TextPath="Label"
-         AutomationProperties.Name="Category or parent category"/>
+        <local:SearchableComboBox SearchItemsSource="{Binding Choices}" SelectedItem="{Binding Link}" DisplayMemberPath="Label"
+         IsEnabled="{Binding CanSave}" AutomationProperties.Name="Category or parent category"/>
         <TextBlock Text="{Binding LinkError}" Foreground="#A31621" TextWrapping="Wrap"/>
-        <ItemsControl ItemsSource="{Binding Sections}">
-         <ItemsControl.ItemTemplate><DataTemplate>
-          <Expander Header="{Binding Title}" IsExpanded="True" Margin="0,4" Background="White" Padding="8">
-           <ItemsControl ItemsSource="{Binding Fields}"/>
-          </Expander>
-         </DataTemplate></ItemsControl.ItemTemplate>
-        </ItemsControl>
+        <TabControl ItemsSource="{Binding Sections}" SelectedItem="{Binding EditorSection}" Margin="0,8,0,0">
+         <TabControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding Caption}"/></DataTemplate></TabControl.ItemTemplate>
+         <TabControl.ContentTemplate><DataTemplate>
+          <StackPanel Margin="8">
+           <StackPanel>
+            <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed"/>
+             <Style.Triggers><DataTrigger Binding="{Binding Title}" Value="GST &amp; Tax"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers>
+            </Style></StackPanel.Style>
+            <StackPanel DataContext="{Binding DataContext,RelativeSource={RelativeSource AncestorType=UserControl}}">
+             <TextBlock Text="HSN / SAC classification" FontWeight="SemiBold" Margin="0,0,0,4"/>
+             <local:SearchableComboBox SearchItemsSource="{Binding TaxChoices}" SelectedItem="{Binding TaxClassification}"
+              DisplayMemberPath="Label" IsEnabled="{Binding CanEditTax}" AutomationProperties.Name="HSN or SAC classification"/>
+             <TextBlock Text="GST rate context" FontWeight="SemiBold" Margin="0,8,0,4"/>
+             <local:SearchableComboBox SearchItemsSource="{Binding TaxContexts}" SelectedItem="{Binding TaxContext}"
+              IsEnabled="{Binding CanEditTax}" AutomationProperties.Name="GST rate context"/>
+             <local:NoticeBanner Text="{Binding TaxMessage}" Margin="0,4,0,8"/>
+             <WrapPanel Margin="0,0,0,6">
+              <DatePicker SelectedDate="{Binding TaxDate}" AutomationProperties.Name="Preview transaction date" Width="140"/>
+              <Button Content="Preview applicable rate" Command="{Binding PreviewTaxCommand}" Margin="8,0,0,0" Padding="8,4"/>
+             </WrapPanel>
+             <TextBlock Text="{Binding TaxRate}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" Margin="0,0,0,10"/>
+             <TextBlock Text="Legacy values are shown below for reference. Invoices use the linked classification and rate context." TextWrapping="Wrap"/>
+            </StackPanel>
+           </StackPanel>
+           <ItemsControl ItemsSource="{Binding Fields}"
+            IsEnabled="{Binding DataContext.CanSave,RelativeSource={RelativeSource AncestorType=UserControl}}"/>
+          </StackPanel>
+         </DataTemplate></TabControl.ContentTemplate>
+        </TabControl>
        </StackPanel>
-       <StackPanel Visibility="{Binding ShowImage,Converter={StaticResource Visible}}">
+       <StackPanel>
+        <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed"/>
+         <Style.Triggers><MultiDataTrigger><MultiDataTrigger.Conditions>
+          <Condition Binding="{Binding ShowImage}" Value="True"/>
+          <Condition Binding="{Binding EditorSection.Title}" Value="Image &amp; Details"/>
+         </MultiDataTrigger.Conditions><Setter Property="Visibility" Value="Visible"/></MultiDataTrigger></Style.Triggers>
+        </Style></StackPanel.Style>
         <Image Source="{Binding Preview}" MaxWidth="220" MaxHeight="140" HorizontalAlignment="Left" AutomationProperties.Name="Product image"/>
         <WrapPanel IsEnabled="{Binding CanSave}" Margin="0,5">
-         <Button Content="Choose or _replace image" Click="ChooseImage" Padding="8,4"/>
-         <Button Content="Re_move image" Click="RemoveImage" Padding="8,4" Margin="5,0"/>
+         <Button Content="{DynamicResource Display.Catalog.Content.ChooseOrReplaceImage}" Click="ChooseImage" Padding="8,4"/>
+         <Button Content="{DynamicResource Display.Catalog.Content.ReMoveImage}" Click="RemoveImage" Padding="8,4" Margin="5,0"/>
         </WrapPanel>
        </StackPanel>
        <TextBlock Text="{Binding Audit}" Margin="0,6" TextWrapping="Wrap"/>

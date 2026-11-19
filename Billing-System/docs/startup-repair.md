@@ -55,7 +55,7 @@ From Billing-System:
 ./Start-GTSBilling.ps1
 ~~~
 
-Alternatively launch src/GTS.Billing.Presentation.Wpf/bin/Release/net10.0-windows/GTS.Billing.Presentation.Wpf.exe. Visual Studio's Debug build is synchronized too. Avoid launching old copied bundles against a newer database.
+The launcher builds the current WPF project before starting it and stops if the build fails. Use `./Start-GTSBilling.ps1 -Configuration Debug` for Debug. Point shortcuts to the script instead of a copied executable. In Visual Studio, open `GTS.Billing.slnx`, use `GTS.Billing.Presentation.Wpf` as the startup project, and build before starting. Older copies still reject databases created by newer versions to protect existing records.
 
 ## Files
 

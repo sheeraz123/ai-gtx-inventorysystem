@@ -6,11 +6,11 @@ public enum CompanyOutcome { Success, InvalidInput, SessionRequired, Forbidden, 
 public enum CompanyAction { List, Get, Create, Update, SetActive, Select, Current }
 public sealed record CompanyRequest(CompanyAction Action, Guid? Id=null, CompanyDraft? Draft=null,
     long? ExpectedVersion=null, bool Active=true, string? Search=null, byte[]? Logo=null, bool RemoveLogo=false,
-    bool ProfileOnly=false);
+    bool ProfileOnly=false,int Page=0,int PageSize=200);
 public sealed record CompanyDetails(Guid Id, long Version, bool Active, bool IsCurrent, CompanyDraft Draft,
     DateTime CreatedUtc, Guid? CreatedBy, DateTime? UpdatedUtc, Guid? UpdatedBy, byte[]? Logo=null);
 public sealed record CompanyResult(CompanyOutcome Outcome, IReadOnlyList<CompanyDetails>? Companies=null,
-    IReadOnlyDictionary<string,string>? Errors=null)
+    IReadOnlyDictionary<string,string>? Errors=null,bool More=false)
 {
     public CompanyDetails? Company => Companies?.FirstOrDefault();
 }
@@ -27,7 +27,8 @@ public sealed class CompanyService(AuthenticationService authentication, ICompan
         {
             return await authentication.RunAuthenticatedAsync(async actor =>
             {
-                if (!actor.IsSuperAdmin) return new CompanyResult(CompanyOutcome.Forbidden);
+                if(request.Page is <0 or >100000 || request.PageSize is <10 or >200)
+                    return new CompanyResult(CompanyOutcome.InvalidInput);
                 if (request.Action is CompanyAction.Create or CompanyAction.Update)
                 {
                     if (request.Draft is null) return new CompanyResult(CompanyOutcome.InvalidInput);
@@ -63,4 +64,3 @@ public static class CompanyLogo
             bytes.AsSpan(bytes.Length-8,4).SequenceEqual("IEND"u8);
     }
 }
-

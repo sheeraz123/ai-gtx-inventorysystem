@@ -3,7 +3,7 @@ using GTS.Billing.Application;
 
 namespace GTS.Billing.Presentation.Wpf;
 
-public enum AuthenticationPage { Unavailable, Setup, Login, Recover, Regenerate, Codes, Shell, Closing }
+public enum AuthenticationPage { Unavailable, Setup, Login, Recover, Regenerate, Codes, Shell, Closing, ChangePassword }
 
 public sealed class AuthenticationViewModel : ObservableObject
 {
@@ -11,6 +11,7 @@ public sealed class AuthenticationViewModel : ObservableObject
     private readonly SynchronizationContext? uiContext = SynchronizationContext.Current;
     private readonly DiagnosticsBackend diagnostics = SafeDiagnostics.Backend;
     public ApplicationLifetime Lifetime { get; }
+    internal LoginPresentation LoginPresentation {get;set;}=LoginPresentation.Default;
     public string ClosingMessage => Lifetime.IsWaitingForOperations
         ? "Waiting for an active operation to finish. GTS Billing will close automatically."
         : "Closing GTS Billing, please wait…";
@@ -54,6 +55,7 @@ public sealed class AuthenticationViewModel : ObservableObject
     public bool Busy { get => busy; private set => SetProperty(ref busy, value); }
     public IReadOnlyList<string> Codes => codes;
     public bool CanRegenerate { get; private set; }
+    public bool PasswordChangeRequired { get; private set; }
 
     public async Task StartAsync(bool configured, CancellationToken ct = default)
     {
@@ -89,7 +91,7 @@ public sealed class AuthenticationViewModel : ObservableObject
     public async Task SubmitAsync(string username, string password, string confirmation, string code, CancellationToken ct = default)
     {
         var submittedPage = Page;
-        if (Busy || submittedPage is not (AuthenticationPage.Setup or AuthenticationPage.Login or AuthenticationPage.Recover or AuthenticationPage.Regenerate)) return;
+        if (Busy || submittedPage is not (AuthenticationPage.Setup or AuthenticationPage.Login or AuthenticationPage.Recover or AuthenticationPage.Regenerate or AuthenticationPage.ChangePassword)) return;
         await Run(async workToken =>
         {
             var result = await Task.Run(() => submittedPage switch
@@ -97,6 +99,7 @@ public sealed class AuthenticationViewModel : ObservableObject
                 AuthenticationPage.Setup => service.SetupAsync(username, password, confirmation, workToken),
                 AuthenticationPage.Login => service.LoginAsync(username, password, workToken),
                 AuthenticationPage.Recover => service.RecoverAsync(code, password, confirmation, workToken),
+                AuthenticationPage.ChangePassword => service.ChangePasswordAsync(code,password,confirmation,workToken),
                 _ => service.RegenerateAsync(password, workToken)
             }, workToken);
             if (result.Outcome == AuthenticationOutcome.Success)
@@ -112,12 +115,17 @@ public sealed class AuthenticationViewModel : ObservableObject
                 {
                     var identity = await Task.Run(() => service.GetCurrentAsync(workToken), workToken);
                     CanRegenerate = identity?.IsSuperAdmin == true;
-                    Page = identity is null ? AuthenticationPage.Login : AuthenticationPage.Shell;
+                    PasswordChangeRequired=identity?.MustChangePassword==true;
+                    Page = identity is null ? AuthenticationPage.Login : PasswordChangeRequired ? AuthenticationPage.ChangePassword : AuthenticationPage.Shell;
+                    if(Page==AuthenticationPage.Shell) Message=LoginPresentation.Get("Success");
                 }
                 else
                 {
                     Page = AuthenticationPage.Login;
-                    Message = "Password reset. Sign in with the new password.";
+                    PasswordChangeRequired=false;
+                    CanRegenerate=false;
+                    Message = submittedPage==AuthenticationPage.ChangePassword ? "Password changed. Sign in again." :
+                        "Password reset. Sign in with the new password.";
                 }
                 return;
             }
@@ -125,6 +133,10 @@ public sealed class AuthenticationViewModel : ObservableObject
                 Page = AuthenticationPage.Login;
             Message = result.Outcome switch
             {
+                AuthenticationOutcome.InvalidInput or AuthenticationOutcome.Rejected when submittedPage==AuthenticationPage.Login =>
+                    LoginPresentation.Get("Invalid"),
+                AuthenticationOutcome.InvalidInput when submittedPage==AuthenticationPage.ChangePassword =>
+                    "Enter matching new passwords of at least 15 characters (maximum 512 UTF-16 units). Use a different passphrase and avoid username-based passwords.",
                 AuthenticationOutcome.InvalidInput => "Check the username format and enter matching passwords of at least 15 characters (maximum 512 UTF-16 units).",
                 AuthenticationOutcome.Throttled => "Too many attempts. Wait up to 30 seconds, then try again.",
                 AuthenticationOutcome.AlreadyConfigured => "Setup is complete. Sign in to continue.",
@@ -134,6 +146,14 @@ public sealed class AuthenticationViewModel : ObservableObject
                 _ => "Sign-in or password verification failed."
             };
         }, ct);
+    }
+
+    public void BeginPasswordChange()
+    {
+        if (Busy || Page!=AuthenticationPage.Shell) return;
+        Message="";
+        PasswordChangeRequired=false;
+        Page=AuthenticationPage.ChangePassword;
     }
 
     public async Task ContinueAsync(CancellationToken ct = default)
@@ -161,12 +181,28 @@ public sealed class AuthenticationViewModel : ObservableObject
                 if (await Task.Run(() => service.GetCurrentAsync(workToken), workToken) is not null) Page = AuthenticationPage.Shell;
             }, ct);
         }
+        else if (Page==AuthenticationPage.ChangePassword && !PasswordChangeRequired)
+        {
+            Page=AuthenticationPage.Login;
+            await Run(async workToken =>
+            {
+                if (await Task.Run(()=>service.GetCurrentAsync(workToken),workToken) is { MustChangePassword:false })
+                    Page=AuthenticationPage.Shell;
+            },ct);
+        }
     }
 
     public async Task LogoutAsync()
     {
-        if (Lifetime.IsStopping || Page != AuthenticationPage.Shell) return;
-        await Lifetime.ShutdownAsync();
+        if (Busy || Lifetime.IsStopping || Page != AuthenticationPage.Shell) return;
+        await Run(async ct =>
+        {
+            await Task.Run(() => service.LogoutAsync(ct),ct);
+            ForgetCodes();
+            CanRegenerate=false;
+            PasswordChangeRequired=false;
+            if(!Lifetime.IsStopping) Page=AuthenticationPage.Login;
+        },CancellationToken.None,closeShellOnFailure:true);
     }
 
     public async Task CheckSessionAsync(CancellationToken ct = default)
@@ -174,7 +210,13 @@ public sealed class AuthenticationViewModel : ObservableObject
         if (Busy || Page != AuthenticationPage.Shell) return;
         await Run(async workToken =>
         {
-            if (await Task.Run(() => service.GetCurrentAsync(workToken), workToken) is null) Page = AuthenticationPage.Login;
+            var identity=await Task.Run(()=>service.GetCurrentAsync(workToken),workToken);
+            if (identity is null) Page=AuthenticationPage.Login;
+            else if (identity.MustChangePassword)
+            {
+                PasswordChangeRequired=true;
+                Page=AuthenticationPage.ChangePassword;
+            }
         }, ct, closeShellOnFailure: true);
     }
 
@@ -192,9 +234,16 @@ public sealed class AuthenticationViewModel : ObservableObject
         catch (OperationCanceledException) when (ct.IsCancellationRequested || Lifetime.IsStopping) { }
         catch
         {
-            if (closeShellOnFailure) Page = AuthenticationPage.Login;
+            if (closeShellOnFailure && !Lifetime.IsStopping)
+            {
+                ForgetCodes();
+                CanRegenerate=false;
+                PasswordChangeRequired=false;
+                Page=AuthenticationPage.Login;
+            }
             SafeDiagnostics.Record("authentication-operation-failed", "Error");
-            Message = "The operation could not be confirmed. Reopen the existing development database and check its availability before retrying.";
+            Message = Page==AuthenticationPage.Login?LoginPresentation.Get("Failure"):
+                "The operation could not be confirmed. Reopen the existing development database and check its availability before retrying.";
         }
         finally { Busy = false; }
     }

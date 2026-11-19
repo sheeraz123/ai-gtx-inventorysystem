@@ -1,0 +1,42 @@
+<UserControl x:Class="GTS.Billing.Presentation.Wpf.NumberingView"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:GTS.Billing.Presentation.Wpf">
+ <UserControl.Resources>
+  <Style x:Key="NumberingButton" TargetType="Button" BasedOn="{StaticResource BillingButton}">
+   <Setter Property="MinHeight" Value="34"/>
+   <Setter Property="Padding" Value="12,5"/>
+   <Setter Property="Margin" Value="0,0,8,6"/>
+  </Style>
+  <BooleanToVisibilityConverter x:Key="Visible"/>
+ </UserControl.Resources>
+ <DockPanel Margin="16">
+  <StackPanel DockPanel.Dock="Top">
+   <TextBlock Text="{Binding Title}" FontSize="26" FontWeight="SemiBold"/>
+   <TextBlock Text="{Binding CurrentYear}" Margin="0,6,0,3"/>
+   <local:NoticeBanner Text="{Binding Message}" Margin="0,2,0,6" />
+   <ProgressBar Height="3" IsIndeterminate="True" Visibility="{Binding Busy,Converter={StaticResource Visible}}"/>
+   <WrapPanel Margin="0,5,0,0">
+    <TextBox Width="240" Height="34" Padding="7,4" Margin="0,0,8,6" MaxLength="100" VerticalContentAlignment="Center"
+     AutomationProperties.Name="Search years or series" ToolTip="Search starts after three characters"
+     Text="{Binding SearchText,UpdateSourceTrigger=PropertyChanged}"/>
+    <ComboBox Width="150" Height="34" Margin="0,0,8,6" ItemsSource="{Binding Statuses}" SelectedItem="{Binding Filter}"
+     DisplayMemberPath="Label" AutomationProperties.Name="Status filter"/>
+    <Button Style="{StaticResource NumberingButton}" Content="{DynamicResource Display.Common.Refresh}" Command="{Binding RefreshCommand}"/>
+   </WrapPanel>
+   <WrapPanel>
+    <Button Style="{StaticResource NumberingButton}" Content="{DynamicResource Display.Common.Add}" Command="{Binding AddCommand}"/>
+    <Button Style="{StaticResource NumberingButton}" Content="{DynamicResource Display.Common.View}" Command="{Binding ViewCommand}"/>
+    <Button Style="{StaticResource NumberingButton}" Content="{DynamicResource Display.Common.Edit}" Command="{Binding EditCommand}"/>
+    <Button Style="{StaticResource NumberingButton}" Content="{Binding PrimaryAction}" Command="{Binding PrimaryCommand}"/>
+    <Button Style="{StaticResource NumberingButton}" Content="{Binding StatusAction}" Command="{Binding StatusCommand}"/>
+    <Button Style="{StaticResource NumberingButton}" Content="{DynamicResource Display.Numbering.Preview}" Command="{Binding PreviewCommand}"
+     Visibility="{Binding ShowSeries,Converter={StaticResource Visible}}"/>
+   </WrapPanel>
+  </StackPanel>
+  <DataGrid x:Name="Records" ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}" IsReadOnly="True"
+   AutoGenerateColumns="False" MinRowHeight="32" CanUserAddRows="False" SelectionMode="Single"
+   Background="{DynamicResource Palette.Surface}" RowBackground="{DynamicResource Palette.Surface}"
+   Foreground="{DynamicResource Palette.Text}" local:MasterGridInteraction.ViewRowCommand="{Binding ViewCommand}"/>
+ </DockPanel>
+</UserControl>

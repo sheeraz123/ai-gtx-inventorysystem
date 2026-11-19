@@ -7,15 +7,22 @@ using GTS.Billing.Domain;
 namespace GTS.Billing.Presentation.Wpf;
 
 public sealed record CompanyChoice(string Key,string Label);
-public sealed class CompanyField(string name,string label,IReadOnlyList<CompanyChoice>? choices=null) : ObservableObject
+public sealed class CompanyField : ObservableObject
 {
-    public string Name {get;}=name;
-    public string Label {get;}=label;
-    public IReadOnlyList<CompanyChoice> Choices {get;}=choices ?? [];
+    private readonly string defaultLabel;
+    public CompanyField(string name,string label,IReadOnlyList<CompanyChoice>? choices=null)
+    {
+        Name=name;defaultLabel=label;Choices=choices ?? [];FilteredChoices=new(Choices);
+        System.Windows.WeakEventManager<SettingsDisplay,EventArgs>.AddHandler(SettingsDisplay.Instance,nameof(SettingsDisplay.Changed),RefreshCaption);
+    }
+    public string Name {get;}
+    public string Label=>SettingsDisplay.Field(defaultLabel);
+    private void RefreshCaption(object? sender,EventArgs e)=>OnPropertyChanged(nameof(Label));
+    public IReadOnlyList<CompanyChoice> Choices {get;}
     public bool IsChoice => Choices.Count>0;
     public bool IsDate => Name == "EstablishedOn";
     public bool IsSearchable => Name == "StateCode";
-    public ObservableCollection<CompanyChoice> FilteredChoices {get;}=new(choices ?? []);
+    public ObservableCollection<CompanyChoice> FilteredChoices {get;}
     public bool IsFiltering {get;private set;}
     public void FilterChoices(string query)
     {
@@ -43,6 +50,7 @@ public sealed class CompanyField(string name,string label,IReadOnlyList<CompanyC
 public sealed record CompanySection(string Title,IReadOnlyList<CompanyField> Fields,int PresentationPage=0)
 {
     public bool IsPresentation => PresentationPage>0;
+    public string Caption=>SettingsDisplay.Section(Title);
 }
 public sealed record CompanyRow(CompanyDetails Details)
 {
@@ -65,6 +73,9 @@ public sealed class CompanyViewModel : ObservableObject
     private readonly CompanyPresentationService? presentation;
     private readonly MasterSearch liveSearch = new();
     private bool loading;
+    private int page;
+    private bool more;
+    public string PageCaption=>$"Page {page+1}";
     private CancellationTokenSource viewCancellation = new();
     public ObservableCollection<CompanyRow> Companies {get;}=[];
     public IReadOnlyList<CompanySection> Sections {get;}
@@ -82,22 +93,47 @@ public sealed class CompanyViewModel : ObservableObject
             var query = MasterSearch.Query(value);
             if (previous != query)
                 _ = liveSearch.ScheduleAsync(query.Length > 0, () => Busy, ct =>
-                    !EditorVisible && !lifetime.IsStopping ? Run(Reload, ct) : Task.CompletedTask);
+                    !EditorVisible && !lifetime.IsStopping ? Run(async token=>{page=0;await Reload(token);},ct) : Task.CompletedTask);
         }
     }
     private string message="";
     public string Message {get=>message;private set=>SetProperty(ref message,value);}
     private string currentCompany="No company selected";
+    private CompanyDetails? currentDetails;
     public string CurrentCompany {get=>currentCompany;private set=>SetProperty(ref currentCompany,value);}
     private Guid? currentCompanyId;
     public Guid? CurrentCompanyId {get=>currentCompanyId;private set=>SetProperty(ref currentCompanyId,value);}
+    public void RefreshDisplay()
+    {
+        var company=currentDetails?.Draft;
+        CurrentCompany=company is null?"No company selected":"Current Company: "+(SettingsDisplay.Current.Get(SettingsRegistry.CompanyDisplay) switch
+        {
+            "Code and name"=>company.Code+" — "+company.LegalName,
+            "Name and code"=>company.LegalName+" ("+company.Code+")",
+            _=>company.LegalName
+        });
+    }
     private bool busy;
     public bool Busy {get=>busy;private set {SetProperty(ref busy,value);OnPropertyChanged(nameof(CanEdit));NotifyCommands();}}
     private bool editorVisible;
     public bool EditorVisible {get=>editorVisible;private set=>SetProperty(ref editorVisible,value);}
     private bool viewOnly;
     public bool ViewOnly {get=>viewOnly;private set {SetProperty(ref viewOnly,value);OnPropertyChanged(nameof(CanEdit));}}
-    public bool CanEdit=>!Busy&&!ViewOnly&&!lifetime.IsStopping;
+    private AccessSnapshot access=AccessSnapshot.Denied;
+    private bool CanViewCompany(CompanyDetails? details)=>details is not null &&
+        (access.IsSuperAdmin || details.IsCurrent && access.Allows("Company.View",details.Id));
+    private bool CanEditCompany(CompanyDetails? details)=>CanViewCompany(details) && (access.IsSuperAdmin ||
+        new[]{"Edit","BankManage","BrandingManage","InvoiceSettingsManage"}.Any(x=>access.Allows("Company."+x,details!.Id)));
+    public bool CanEdit=>!Busy&&!ViewOnly&&!lifetime.IsStopping &&
+        (editing is null?access.IsSuperAdmin:access.Allows("Company.Edit",editing.Id));
+    public void SetAccess(AccessSnapshot value)
+    {
+        if(access.EquivalentTo(value)) return;
+        if(EditorVisible && !(access.IsSuperAdmin && value.IsSuperAdmin)) CancelEditor();
+        access=value;
+        OnPropertyChanged(nameof(CanEdit));
+        NotifyCommands();
+    }
     private bool dirty;
     public bool Dirty {get=>dirty;private set=>SetProperty(ref dirty,value);}
     public event Action? SessionExpired;
@@ -111,11 +147,11 @@ public sealed class CompanyViewModel : ObservableObject
     public string PresentationUnavailable => editing is null
         ? "Save the company first, then select it as Current to manage this tab."
         : "Select this active company as Current to access this tab.";
-    public bool CanEditViewed => EditorVisible && ViewOnly && !Busy && !lifetime.IsStopping;
+    public bool CanEditViewed => EditorVisible && ViewOnly && !Busy && !lifetime.IsStopping && CanEditCompany(editing);
     private void SetPresentationEditor(CompanyDetails? details,bool readOnly)
     {
         PresentationEditor?.Dispose();
-        if (presentation is null || details is not { Active:true, IsCurrent:true })
+        if (presentation is null || details is not { Active:true, IsCurrent:true } || !CanViewCompany(details))
         {
             PresentationEditor=null;
         }
@@ -126,6 +162,7 @@ public sealed class CompanyViewModel : ObservableObject
                 CompanyId=details.Id,
                 CompanyName=details.Draft.LegalName,
                 ReadOnly=readOnly,
+                Access=access,
                 SessionExpired=() => { Clear(); SessionExpired?.Invoke(); },
                 CompanyVersionChanged=version =>
                 {
@@ -143,6 +180,8 @@ public sealed class CompanyViewModel : ObservableObject
     public IAsyncRelayCommand SelectCommand {get;}
     public IAsyncRelayCommand SaveCommand {get;}
     public IAsyncRelayCommand EditViewedCommand {get;}
+    public IAsyncRelayCommand PreviousPageCommand {get;}
+    public IAsyncRelayCommand NextPageCommand {get;}
 
     public CompanyViewModel(CompanyService service,ApplicationLifetime lifetime,CompanyPresentationService? presentation=null)
     {
@@ -168,13 +207,17 @@ public sealed class CompanyViewModel : ObservableObject
         foreach(var field in Fields) field.PropertyChanged+=(_,e)=>
         {if(e.PropertyName==nameof(CompanyField.Value)&&!loading&&EditorVisible) Dirty=original is null || Draft()!=original;};
         RefreshCommand=new AsyncRelayCommand(RefreshAsync,()=>!EditorVisible&&!Busy&&!lifetime.IsStopping);
-        AddCommand=new RelayCommand(()=>Open(null,false),()=>!EditorVisible&&!Busy&&!lifetime.IsStopping);
-        EditCommand=new AsyncRelayCommand(()=>OpenSelected(false),()=>!EditorVisible&&Selected is not null&&!Busy&&!lifetime.IsStopping);
-        ViewCommand=new AsyncRelayCommand(()=>OpenSelected(true),()=>!EditorVisible&&Selected is not null&&!Busy&&!lifetime.IsStopping);
-        ToggleActiveCommand=new AsyncRelayCommand(()=>Mutate(CompanyAction.SetActive),()=>!EditorVisible&&Selected is not null&&!Busy&&!lifetime.IsStopping);
+        AddCommand=new RelayCommand(()=>Open(null,false),()=>access.IsSuperAdmin&&!EditorVisible&&!Busy&&!lifetime.IsStopping);
+        EditCommand=new AsyncRelayCommand(()=>OpenSelected(false),()=>!EditorVisible&&!Busy&&!lifetime.IsStopping&&CanEditCompany(Selected?.Details));
+        ViewCommand=new AsyncRelayCommand(()=>OpenSelected(true),()=>!EditorVisible&&!Busy&&!lifetime.IsStopping&&CanViewCompany(Selected?.Details));
+        ToggleActiveCommand=new AsyncRelayCommand(()=>Mutate(CompanyAction.SetActive),()=>access.IsSuperAdmin&&!EditorVisible&&Selected is not null&&!Busy&&!lifetime.IsStopping);
         SelectCommand=new AsyncRelayCommand(()=>Mutate(CompanyAction.Select),()=>!EditorVisible&&Selected?.Details.Active==true&&!Busy&&!lifetime.IsStopping);
         SaveCommand=new AsyncRelayCommand(SaveAsync,()=>CanEdit&&EditorVisible);
         EditViewedCommand=new AsyncRelayCommand(()=>OpenById(editing?.Id,false),()=>CanEditViewed);
+        PreviousPageCommand=new AsyncRelayCommand(()=>Run(async token=>{page--;await Reload(token);}),
+            ()=>!EditorVisible&&!Busy&&!lifetime.IsStopping&&page>0);
+        NextPageCommand=new AsyncRelayCommand(()=>Run(async token=>{page++;await Reload(token);}),
+            ()=>!EditorVisible&&!Busy&&!lifetime.IsStopping&&more);
         var ui = SynchronizationContext.Current;
         lifetime.ShutdownStarted+=()=> { if(ui is null || SynchronizationContext.Current==ui) Clear(); else ui.Post(_=>Clear(),null); };
     }
@@ -183,6 +226,8 @@ public sealed class CompanyViewModel : ObservableObject
         RefreshCommand?.NotifyCanExecuteChanged();AddCommand?.NotifyCanExecuteChanged();EditCommand?.NotifyCanExecuteChanged();
         ViewCommand?.NotifyCanExecuteChanged();ToggleActiveCommand?.NotifyCanExecuteChanged();SelectCommand?.NotifyCanExecuteChanged();
         SaveCommand?.NotifyCanExecuteChanged();EditViewedCommand?.NotifyCanExecuteChanged();
+        PreviousPageCommand?.NotifyCanExecuteChanged();NextPageCommand?.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(PageCaption));
         OnPropertyChanged(nameof(CanEditViewed));
     }
     private CompanyDraft Draft()
@@ -218,7 +263,7 @@ public sealed class CompanyViewModel : ObservableObject
         viewCancellation = new();
         previous.Cancel();
         previous.Dispose();
-        CancelEditor();Companies.Clear();Selected=null;CurrentCompanyId=null;CurrentCompany="No company selected";Message="";
+        CancelEditor();Companies.Clear();Selected=null;currentDetails=null;CurrentCompanyId=null;page=0;more=false;RefreshDisplay();Message="";
     }
     private async Task Run(Func<CancellationToken,Task> operation, CancellationToken caller = default)
     {
@@ -242,7 +287,7 @@ public sealed class CompanyViewModel : ObservableObject
         if(result.Outcome==CompanyOutcome.SessionRequired) {Clear();SessionExpired?.Invoke();}
         Message=result.Outcome switch {
             CompanyOutcome.Success=>"Ready.",CompanyOutcome.SessionRequired=>"Session expired. Sign in again.",
-            CompanyOutcome.Forbidden=>"Company Master is restricted to the Super Admin.",
+            CompanyOutcome.Forbidden=>"Company access is denied for this operation.",
             CompanyOutcome.Conflict=>"The data changed or conflicts with an existing record. Refresh before editing.",
             CompanyOutcome.InvalidInput=>"Check the highlighted fields or the company status.",
             CompanyOutcome.NotFound=>"Company not found.",_=>"Company Master is unavailable. Contact the administrator."};
@@ -253,19 +298,22 @@ public sealed class CompanyViewModel : ObservableObject
     {
         var selectedId=Selected?.Details.Id;
         var query=MasterSearch.Query(Search);
-        var result=await Send(new(CompanyAction.List,Search:query,ProfileOnly:true),ct);
+        var result=await Send(new(CompanyAction.List,Search:query,ProfileOnly:true,Page:page,
+            PageSize:SettingsDisplay.Current.Get(SettingsRegistry.PageSize)),ct);
         if (query!=MasterSearch.Query(Search) && result.Outcome==CompanyOutcome.Success) return;
-        if(!Accept(result)) {Companies.Clear();Selected=null;CurrentCompanyId=null;CurrentCompany="No company selected";return;}
+        if(!Accept(result)) {Companies.Clear();Selected=null;more=false;SetCurrent(null);return;}
+        more=result.More;
         Companies.Clear();foreach(var row in result.Companies!) Companies.Add(new(row));
         Selected=Companies.FirstOrDefault(x=>x.Details.Id==selectedId);
         var current=await Send(new(CompanyAction.Current,ProfileOnly:true),ct);
-        if(Accept(current)) {CurrentCompanyId=current.Company?.Id;CurrentCompany=current.Company is null?"No company selected":"Current Company: "+current.Company.Draft.LegalName;}
+        if(Accept(current)) SetCurrent(current.Company);
     }
-    public Task RefreshAsync()=>Run(Reload);
+    public Task RefreshAsync()=>Run(async ct=>{page=0;await Reload(ct);});
     public Task RefreshCurrentAsync()=>Run(async ct=>{
         var result=await Send(new(CompanyAction.Current,ProfileOnly:true),ct);
-        if(Accept(result)) {CurrentCompanyId=result.Company?.Id;CurrentCompany=result.Company is null?"No company selected":"Current Company: "+result.Company.Draft.LegalName;}
+        if(Accept(result)) SetCurrent(result.Company);
     });
+    private void SetCurrent(CompanyDetails? details) { currentDetails=details;CurrentCompanyId=details?.Id;RefreshDisplay(); }
     private Task OpenSelected(bool readOnly)=>OpenById(Selected?.Details.Id,readOnly);
     private Task OpenById(Guid? id,bool readOnly)=>Run(async ct=>{
         if(id is null) return;

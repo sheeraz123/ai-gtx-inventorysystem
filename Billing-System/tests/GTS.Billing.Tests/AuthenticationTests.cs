@@ -282,8 +282,8 @@ public sealed class AuthenticationTests : IAsyncLifetime
         Assert.True((await original.GetCurrentAsync())?.IsSuperAdmin == true);
 
         await vm.LogoutAsync();
-        Assert.Equal(AuthenticationPage.Closing, vm.Page);
-        Assert.True(vm.Lifetime.IsStopped);
+        Assert.Equal(AuthenticationPage.Login, vm.Page);
+        Assert.False(vm.Lifetime.IsStopping);
         Assert.Equal(AuthenticationOutcome.SessionRequired, (await original.RegenerateAsync(NewPassword)).Outcome);
     }
 
@@ -319,9 +319,9 @@ public sealed class AuthenticationTests : IAsyncLifetime
         await vm.ContinueAsync();
         Assert.Equal(AuthenticationPage.Shell, vm.Page);
         await vm.LogoutAsync();
-        Assert.Equal(AuthenticationPage.Closing, vm.Page);
+        Assert.Equal(AuthenticationPage.Login, vm.Page);
         await vm.BeginRegenerationAsync();
-        Assert.Equal(AuthenticationPage.Closing, vm.Page);
+        Assert.Equal(AuthenticationPage.Login, vm.Page);
         Assert.Empty(vm.Codes);
         Assert.Null(await app.GetCurrentAsync());
     }
@@ -362,7 +362,7 @@ public sealed class AuthenticationTests : IAsyncLifetime
                     Assert.Equal(System.Windows.Visibility.Visible, shell.Visibility);
                     var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                     var accepted = vm.Lifetime.RunAsync(_ => finish.Task);
-                    var logout = vm.LogoutAsync();
+                    var logout = vm.Lifetime.ShutdownAsync();
                     Assert.False(logout.IsCompleted);
                     Assert.Equal("Closing GTS Billing, please wait…",
                         Assert.IsType<System.Windows.Controls.TextBlock>(view.FindName("Heading")).Text);

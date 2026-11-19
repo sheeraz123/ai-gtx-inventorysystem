@@ -1,23 +1,45 @@
 <UserControl x:Class="GTS.Billing.Presentation.Wpf.AuthenticationView"
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
- xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
- <ScrollViewer VerticalScrollBarVisibility="Auto">
-  <StackPanel MaxWidth="620" Margin="32,22">
-   <TextBlock Text="GTS Billing System" FontSize="28" FontWeight="SemiBold" />
-   <TextBlock Text="UNENCRYPTED DEVELOPMENT DATABASE — synthetic credentials only." Margin="0,8,0,16" TextWrapping="Wrap" />
-   <TextBlock x:Name="Heading" FontSize="20" FontWeight="SemiBold" />
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:GTS.Billing.Presentation.Wpf">
+ <ScrollViewer x:Name="Backdrop" VerticalScrollBarVisibility="Auto" Background="{DynamicResource Palette.Canvas}">
+  <Border MaxWidth="560" Margin="24,40" CornerRadius="12" Background="{DynamicResource Palette.Surface}" VerticalAlignment="Center">
+  <StackPanel>
+   <Border x:Name="BrandHeader" Background="#15263C" CornerRadius="12,12,0,0" Padding="28,23">
+    <StackPanel>
+     <Image x:Name="BrandLogo" HorizontalAlignment="Left" MaxHeight="65" MaxWidth="185" Stretch="Uniform" Margin="0,0,0,10" Visibility="Collapsed"/>
+     <TextBlock x:Name="BrandName" Text="GTS Billing System" FontSize="29" FontWeight="SemiBold" Foreground="White" TextWrapping="Wrap"/>
+     <TextBlock x:Name="ClientName" Margin="0,6,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+    </StackPanel>
+   </Border>
+   <StackPanel Margin="28,22,28,24">
+   <TextBlock x:Name="Heading" FontSize="23" FontWeight="SemiBold" />
    <TextBlock x:Name="Instructions" Margin="0,8" TextWrapping="Wrap" />
+   <TextBlock x:Name="WelcomeText" Margin="0,0,0,8" TextWrapping="Wrap" Visibility="Collapsed"/>
    <StackPanel x:Name="Form">
     <StackPanel x:Name="UsernameRow">
-     <Label Content="_Username" Target="{Binding ElementName=Username}" />
-     <TextBox x:Name="Username" AutomationProperties.Name="GTS username" MaxLength="128" />
+     <Label x:Name="UsernameLabel" Content="_Username" Target="{Binding ElementName=Username}" />
+     <Grid>
+      <TextBox x:Name="Username" AutomationProperties.Name="GTS username" MaxLength="128" MinHeight="36" Padding="8,5" />
+      <TextBlock x:Name="UsernameHint" Opacity=".78" VerticalAlignment="Center" Margin="10,0"
+                 TextTrimming="CharacterEllipsis" IsHitTestVisible="False"/>
+     </Grid>
+     <local:NoticeBanner x:Name="UsernameError" Kind="Error"/>
     </StackPanel>
     <StackPanel x:Name="CodeRow">
-     <Label Content="Recovery _code" Target="{Binding ElementName=Code}" />
+     <Label x:Name="CodeLabel" Content="Recovery _code" Target="{Binding ElementName=Code}" />
      <PasswordBox x:Name="Code" AutomationProperties.Name="Recovery code" MaxLength="64" />
     </StackPanel>
     <Label x:Name="PasswordLabel" Content="_Password" Target="{Binding ElementName=PasswordField}" />
-    <PasswordBox x:Name="PasswordField" AutomationProperties.Name="Password" MaxLength="512" />
+    <Grid>
+     <PasswordBox x:Name="PasswordField" AutomationProperties.Name="Password" MaxLength="512" MinHeight="36" Padding="8,5" />
+     <TextBox x:Name="VisiblePassword" AutomationProperties.Name="Visible password" MaxLength="512"
+      MinHeight="36" Padding="8,5" Visibility="Collapsed" SpellCheck.IsEnabled="False" IsUndoEnabled="False" />
+     <TextBlock x:Name="PasswordHint" Opacity=".78" VerticalAlignment="Center" Margin="10,0"
+                TextTrimming="CharacterEllipsis" IsHitTestVisible="False"/>
+    </Grid>
+    <CheckBox x:Name="Reveal" Content="_Show password" Margin="0,8,0,0"
+     Checked="PasswordVisibilityChanged" Unchecked="PasswordVisibilityChanged" />
+    <local:NoticeBanner x:Name="PasswordError" Kind="Error"/>
     <StackPanel x:Name="ConfirmationRow">
      <Label Content="C_onfirm password" Target="{Binding ElementName=Confirmation}" />
      <PasswordBox x:Name="Confirmation" AutomationProperties.Name="Confirm password" MaxLength="512" />
@@ -36,8 +58,13 @@
      <Button x:Name="Continue" Content="_Continue" Click="ContinueClicked" Padding="12,5" Margin="8,0,0,0" />
     </WrapPanel>
    </StackPanel>
-   <TextBlock Text="{Binding Message}" Foreground="#892500" Margin="0,12,0,0" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
-   <TextBlock x:Name="DocumentStatus" Margin="0,8,0,0" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+   <local:NoticeBanner Text="{Binding Message}" Margin="0,12,0,0" />
+   <local:NoticeBanner x:Name="DocumentStatus" Margin="0,8,0,0" />
+   <TextBlock x:Name="Footer" Margin="0,12,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+   <TextBlock x:Name="Copyright" Margin="0,5,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+   <TextBlock Text="Development database · synthetic credentials only" Opacity=".82" Margin="0,14,0,0" TextWrapping="Wrap"/>
+   </StackPanel>
   </StackPanel>
+  </Border>
  </ScrollViewer>
 </UserControl>

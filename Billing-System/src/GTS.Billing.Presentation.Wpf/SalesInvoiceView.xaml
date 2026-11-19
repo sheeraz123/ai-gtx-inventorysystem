@@ -1,0 +1,54 @@
+<UserControl x:Class="GTS.Billing.Presentation.Wpf.SalesInvoiceView"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:GTS.Billing.Presentation.Wpf">
+ <UserControl.Resources>
+  <Style x:Key="InvoiceButton" TargetType="Button" BasedOn="{StaticResource BillingButton}">
+   <Setter Property="Margin" Value="0,0,8,6"/><Setter Property="Padding" Value="12,5"/><Setter Property="MinHeight" Value="34"/>
+  </Style>
+ </UserControl.Resources>
+ <DockPanel Margin="16">
+  <StackPanel DockPanel.Dock="Top">
+   <TextBlock Text="{DynamicResource Display.Sales.Title}" FontSize="26" FontWeight="SemiBold"/>
+   <local:NoticeBanner Text="{Binding Message}" Margin="0,6" />
+   <WrapPanel>
+    <TextBox Width="220" Height="34" Padding="7,4" Margin="0,0,8,6" MaxLength="100"
+     Text="{Binding SearchText,UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search invoices"/>
+    <ComboBox Width="125" Height="34" Margin="0,0,8,6" ItemsSource="{Binding Statuses}" SelectedItem="{Binding Status}"
+     DisplayMemberPath="Label" AutomationProperties.Name="Invoice status"/>
+    <local:SearchableComboBox Width="135" Height="34" Margin="0,0,8,6" SearchItemsSource="{Binding Years}" SelectedItem="{Binding Year}"
+     DisplayMemberPath="Label" AutomationProperties.Name="Financial year"/>
+    <local:SearchableComboBox Width="160" Height="34" Margin="0,0,8,6" SearchItemsSource="{Binding Customers}" SelectedItem="{Binding Customer}"
+     DisplayMemberPath="Label" AutomationProperties.Name="Customer"/>
+    <local:SearchableComboBox Width="150" Height="34" Margin="0,0,8,6" SearchItemsSource="{Binding SeriesChoices}" SelectedItem="{Binding Series}"
+     DisplayMemberPath="Label" AutomationProperties.Name="Document series"/>
+    <TextBlock Text="From" Margin="0,6,4,6"/><DatePicker SelectedDate="{Binding From}" AutomationProperties.Name="From date" Margin="0,0,8,6"/>
+    <TextBlock Text="To" Margin="0,6,4,6"/><DatePicker SelectedDate="{Binding To}" AutomationProperties.Name="To date" Margin="0,0,8,6"/>
+   </WrapPanel>
+   <WrapPanel>
+    <Button Style="{StaticResource InvoiceButton}" Content="New invoice" Command="{Binding NewCommand}"/>
+    <Button Style="{StaticResource InvoiceButton}" Content="{DynamicResource Display.Common.View}" Command="{Binding ViewCommand}"/>
+    <Button Style="{StaticResource InvoiceButton}" Content="Print preview" Command="{Binding PrintPreviewCommand}"/>
+    <Button Style="{StaticResource InvoiceButton}" Content="Edit draft" Command="{Binding EditCommand}"/>
+    <Button Style="{StaticResource InvoiceButton}" Content="{DynamicResource Display.Sales.Finalize}" Command="{Binding FinalizeCommand}"/>
+    <Button Style="{StaticResource InvoiceButton}" Content="{DynamicResource Display.Common.Refresh}" Command="{Binding RefreshCommand}"/>
+   </WrapPanel>
+  </StackPanel>
+  <DataGrid ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}" IsReadOnly="True" AutoGenerateColumns="False"
+    CanUserAddRows="False" SelectionMode="Single" MinRowHeight="32" Background="{DynamicResource Palette.Surface}"
+    RowBackground="{DynamicResource Palette.Surface}" Foreground="{DynamicResource Palette.Text}"
+    local:MasterGridInteraction.ViewRowCommand="{Binding ViewCommand}">
+   <DataGrid.Columns>
+    <DataGridTextColumn Header="Invoice number" local:SettingsDisplay.LabelKey="Sales.Number" Binding="{Binding Number}" Width="130"/>
+    <DataGridTextColumn Header="Invoice date" local:SettingsDisplay.LabelKey="Sales.Date" Binding="{Binding Date,StringFormat=d}" Width="110"/>
+    <DataGridTextColumn Header="Customer" local:SettingsDisplay.LabelKey="Sales.Customer" Binding="{Binding Customer}" Width="*" MinWidth="135"/>
+    <DataGridTextColumn Header="Financial year" Binding="{Binding Year}" Width="105"/>
+    <DataGridTextColumn Header="Series" Binding="{Binding Series}" Width="100"/>
+    <DataGridTextColumn Header="Taxable value" local:SettingsDisplay.LabelKey="Sales.Taxable" Binding="{Binding Taxable,StringFormat=N2}" Width="105"/>
+    <DataGridTextColumn Header="GST" Binding="{Binding Tax,StringFormat=N2}" Width="90"/>
+    <DataGridTextColumn Header="Grand total" local:SettingsDisplay.LabelKey="Sales.Total" Binding="{Binding Total,StringFormat=N2}" Width="110"/>
+    <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="85"/>
+   </DataGrid.Columns>
+  </DataGrid>
+ </DockPanel>
+</UserControl>

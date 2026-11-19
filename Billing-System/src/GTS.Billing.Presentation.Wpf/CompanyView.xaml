@@ -22,6 +22,7 @@
     </DatePicker>
     <ComboBox ItemsSource="{Binding FilteredChoices}" DisplayMemberPath="Label" SelectedValuePath="Key"
       IsEditable="{Binding IsSearchable,Mode=OneWay}" IsTextSearchEnabled="False" StaysOpenOnEdit="True" TextBoxBase.TextChanged="StateSearchChanged"
+      ToolTip="Search starts after three trimmed characters where typing is available"
       SelectedValue="{Binding Value,UpdateSourceTrigger=PropertyChanged}" MinHeight="30" AutomationProperties.Name="{Binding Label}">
      <ComboBox.Style><Style TargetType="ComboBox"><Setter Property="Visibility" Value="Collapsed"/>
       <Style.Triggers><DataTrigger Binding="{Binding IsChoice}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers>
@@ -33,8 +34,8 @@
  </UserControl.Resources>
  <Grid Margin="18">
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-  <TextBlock Text="Company Master" FontSize="26" FontWeight="SemiBold"/>
-  <StackPanel Grid.Row="1"><TextBlock Text="{Binding Message}" TextWrapping="Wrap" Margin="0,8" AutomationProperties.LiveSetting="Polite"/>
+  <TextBlock Text="{DynamicResource Display.Company.Title}" FontSize="26" FontWeight="SemiBold"/>
+  <StackPanel Grid.Row="1"><local:NoticeBanner Text="{Binding Message}" Margin="0,8" />
    <ProgressBar IsIndeterminate="True" Height="4" Visibility="{Binding Busy,Converter={StaticResource Visible}}"/>
   </StackPanel>
   <Grid Grid.Row="2">
@@ -45,51 +46,56 @@
     <StackPanel DockPanel.Dock="Top">
      <WrapPanel Margin="0,0,0,10">
       <TextBox Text="{Binding Search,UpdateSourceTrigger=PropertyChanged}" Width="180" MaxLength="100" ToolTip="Search starts at three characters" AutomationProperties.Name="Search companies by code, name, GSTIN or city" Margin="0,0,6,0"/>
-      <Button Content="_Refresh" Command="{Binding RefreshCommand}" Padding="8,5"/>
-      <Button Content="_Add company" Command="{Binding AddCommand}" Padding="8,5" Margin="6,0"/>
+      <Button Content="{DynamicResource Display.Common.Refresh}" Command="{Binding RefreshCommand}" Padding="8,5"/>
+      <Button Content="{DynamicResource Display.Company.Content.AddCompany}" Command="{Binding AddCommand}" Padding="8,5" Margin="6,0"/>
      </WrapPanel>
      <WrapPanel Margin="0,0,0,10">
-      <Button Content="_Edit" Command="{Binding EditCommand}" Padding="8,5"/>
-      <Button Content="_View details" Command="{Binding ViewCommand}" Padding="8,5" Margin="6,0"/>
-      <Button Content="Activate / _Deactivate" Command="{Binding ToggleActiveCommand}" Padding="8,5" Margin="0,0,6,0"/>
-      <Button Content="Select as _Current" Command="{Binding SelectCommand}" Padding="8,5"/>
+      <Button Content="{DynamicResource Display.Common.Edit}" Command="{Binding EditCommand}" Padding="8,5"/>
+      <Button Content="{DynamicResource Display.Company.Content.ViewDetails}" Command="{Binding ViewCommand}" Padding="8,5" Margin="6,0"/>
+      <Button Content="{DynamicResource Display.Company.Content.ActivateDeactivate}" Command="{Binding ToggleActiveCommand}" Padding="8,5" Margin="0,0,6,0"/>
+      <Button Content="{DynamicResource Display.Company.Content.SelectAsCurrent}" Command="{Binding SelectCommand}" Padding="8,5"/>
      </WrapPanel>
     </StackPanel>
+    <WrapPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+     <Button Content="{DynamicResource Display.Company.Content.Previous}" Command="{Binding PreviousPageCommand}" Padding="8,4"/>
+     <TextBlock Text="{Binding PageCaption}" Margin="10,4"/>
+     <Button Content="{DynamicResource Display.Company.Content.Next}" Command="{Binding NextPageCommand}" Padding="8,4"/>
+    </WrapPanel>
     <DataGrid ItemsSource="{Binding Companies}" SelectedItem="{Binding Selected}" AutoGenerateColumns="False" IsReadOnly="True"
-      SelectionMode="Single" CanUserAddRows="False" AutomationProperties.Name="Companies"
+      SelectionMode="Single" CanUserAddRows="False" AutomationProperties.Name="Companies" local:SettingsDisplay.GridId="Companies"
       local:MasterGridInteraction.ViewRowCommand="{Binding ViewCommand}">
      <DataGrid.Columns>
-      <DataGridTextColumn Header="Code" Binding="{Binding Code}"/>
-      <DataGridTextColumn Header="Legal name" Binding="{Binding LegalName}" Width="*"/>
-      <DataGridTextColumn Header="Trade name" Binding="{Binding TradeName}"/>
-      <DataGridTextColumn Header="City" Binding="{Binding City}"/>
-      <DataGridTextColumn Header="State" Binding="{Binding State}"/>
-      <DataGridTextColumn Header="GSTIN" Binding="{Binding Gstin}"/>
-      <DataGridTextColumn Header="Status" Binding="{Binding Status}"/>
-      <DataGridTextColumn Header="Selection" Binding="{Binding Current}"/>
+      <DataGridTextColumn Header="Code" local:SettingsDisplay.LabelKey="Company.Grid.Code" Binding="{Binding Code}"/>
+      <DataGridTextColumn Header="Legal name" local:SettingsDisplay.LabelKey="Company.Grid.LegalName" Binding="{Binding LegalName}" Width="*"/>
+      <DataGridTextColumn Header="Trade name" local:SettingsDisplay.LabelKey="Company.Grid.TradeName" Binding="{Binding TradeName}"/>
+      <DataGridTextColumn Header="City" local:SettingsDisplay.LabelKey="Company.Grid.City" Binding="{Binding City}"/>
+      <DataGridTextColumn Header="State" local:SettingsDisplay.LabelKey="Company.Grid.State" Binding="{Binding State}"/>
+      <DataGridTextColumn Header="GSTIN" local:SettingsDisplay.LabelKey="Company.Grid.GSTIN" Binding="{Binding Gstin}"/>
+      <DataGridTextColumn Header="Status" local:SettingsDisplay.LabelKey="Company.Grid.Status" Binding="{Binding Status}"/>
+      <DataGridTextColumn Header="Selection" local:SettingsDisplay.LabelKey="Company.Grid.Selection" Binding="{Binding Current}"/>
      </DataGrid.Columns>
     </DataGrid>
    </DockPanel>
-   <Border Background="#F3F5F8" Visibility="{Binding EditorVisible,Converter={StaticResource Visible}}" Padding="0,0,0,4">
+   <Border Background="{DynamicResource Palette.Canvas}" Visibility="{Binding EditorVisible,Converter={StaticResource Visible}}" Padding="0,0,0,4">
     <DockPanel>
      <StackPanel DockPanel.Dock="Bottom">
       <WrapPanel>
-       <Button Content="_Edit" Command="{Binding EditViewedCommand}" Visibility="{Binding ViewOnly,Converter={StaticResource Visible}}" Padding="8,5" Margin="0,0,6,0"/>
-       <Button Content="_Save" Command="{Binding SaveCommand}" Padding="12,5" Margin="0,0,6,0">
+       <Button Content="{DynamicResource Display.Common.Edit}" Command="{Binding EditViewedCommand}" Visibility="{Binding ViewOnly,Converter={StaticResource Visible}}" Padding="8,5" Margin="0,0,6,0"/>
+       <Button Content="{DynamicResource Display.Common.Save}" Command="{Binding SaveCommand}" Padding="12,5" Margin="0,0,6,0">
         <Button.Style><Style TargetType="Button"><Style.Triggers>
          <DataTrigger Binding="{Binding ViewOnly}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
          <DataTrigger Binding="{Binding SelectedItem.IsPresentation,ElementName=EditorTabs}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
         </Style.Triggers></Style></Button.Style>
        </Button>
        <Button Click="CancelEditor" Padding="8,5">
-        <Button.Style><Style TargetType="Button"><Setter Property="Content" Value="_Cancel"/><Style.Triggers>
-         <DataTrigger Binding="{Binding ViewOnly}" Value="True"><Setter Property="Content" Value="_Close"/></DataTrigger>
+        <Button.Style><Style TargetType="Button"><Setter Property="Content" Value="{DynamicResource Display.Common.Cancel}"/><Style.Triggers>
+         <DataTrigger Binding="{Binding ViewOnly}" Value="True"><Setter Property="Content" Value="{DynamicResource Display.Common.Close}"/></DataTrigger>
         </Style.Triggers></Style></Button.Style>
        </Button>
       </WrapPanel>
      </StackPanel>
      <TabControl x:Name="EditorTabs" ItemsSource="{Binding Sections}" SelectionChanged="EditorTabChanged">
-      <TabControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding Title}"/></DataTemplate></TabControl.ItemTemplate>
+      <TabControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding Caption}"/></DataTemplate></TabControl.ItemTemplate>
       <TabControl.ContentTemplate><DataTemplate>
        <Grid>
         <ScrollViewer VerticalScrollBarVisibility="Auto">

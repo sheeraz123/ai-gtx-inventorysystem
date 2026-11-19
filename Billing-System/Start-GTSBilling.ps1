@@ -1,8 +1,13 @@
 param([ValidateSet('Release','Debug')][string]$Configuration='Release')
 $ErrorActionPreference='Stop'
-$application=Join-Path $PSScriptRoot "src/GTS.Billing.Presentation.Wpf/bin/$Configuration/net10.0-windows/GTS.Billing.Presentation.Wpf.exe"
-if(-not (Test-Path -LiteralPath $application -PathType Leaf)) {
-    throw "The $Configuration application has not been built. Build GTS.Billing.slnx with configuration $Configuration first."
+$project='src/GTS.Billing.Presentation.Wpf/GTS.Billing.Presentation.Wpf.csproj'
+Push-Location -LiteralPath $PSScriptRoot
+try {
+    # Build and launch the same project in one command so a failed build cannot start an older binary.
+    dotnet run --configuration $Configuration --project $project
+    if ($LASTEXITCODE -ne 0) {
+        throw "GTS Billing build or launch exited with code $LASTEXITCODE. See the build output or startup dialog for details."
+    }
+} finally {
+    Pop-Location
 }
-# Stable entry point; configuration, ownership, identity and upgrade approval remain inside the application.
-Start-Process -FilePath $application -WorkingDirectory (Split-Path -Parent $application) -WindowStyle Normal

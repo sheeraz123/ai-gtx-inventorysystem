@@ -46,14 +46,28 @@ public sealed class CustomerViewModel : ObservableObject,IDisposable
     public string InvoiceReadiness {get=>readiness;private set=>SetProperty(ref readiness,value);}
     public string FinancialAvailability=>"Available after invoicing/accounting implementation. Ledger, invoice/receipt history, outstanding, ageing, credit/debit notes and statements are unavailable.";
     public string OpeningExplanation=>"DRAFT ONLY — Debit: customer owes the business; Credit: business owes the customer. This is not a posted ledger entry or an outstanding total.";
-    public string CreditWarning=>CreditFields.Single(x=>x.Name=="CreditHold").Checked?"CREDIT HOLD — customer is not offered for new invoice selection. No live receivables check is available.":"Stored credit policy only — enforcement against live receivables is unavailable.";
+    public string CreditWarning=>CreditFields.Single(x=>x.Name=="CreditHold").Checked?
+        (SettingsDisplay.Current.Get(SettingsRegistry.CreditWarning)?"CREDIT HOLD — customer is not offered for new invoice selection. No live receivables check is available.":"CREDIT HOLD"):
+        "Stored credit policy only — enforcement against live receivables is unavailable.";
     private bool busy;
     public bool Busy {get=>busy;private set {SetProperty(ref busy,value);NotifyState();}}
     private bool editorOpen;
     public bool EditorOpen {get=>editorOpen;private set {SetProperty(ref editorOpen,value);NotifyState();}}
     private bool viewOnly;
     public bool ViewOnly {get=>viewOnly;private set {SetProperty(ref viewOnly,value);NotifyState();}}
-    public bool CanEdit=>EditorOpen&&!ViewOnly&&!Busy&&!lifetime.IsStopping&&!disposed;
+    private AccessSnapshot access=AccessSnapshot.Denied;
+    private bool Can(string action)=>access.Allows("Customer."+action);
+    public bool CanEdit=>EditorOpen&&!ViewOnly&&!Busy&&!lifetime.IsStopping&&!disposed && Can(editing is null?"Create":"Edit");
+    public bool CanEditCredit=>CanEdit && Can("CreditEdit");
+    public bool CanEditBank=>CanEdit && Can("BankView") && Can("BankEdit");
+    public bool CanSeeBank=>Can("BankView");
+    public void SetAccess(AccessSnapshot value)
+    {
+        if (access.EquivalentTo(value)) return;
+        access=value;
+        if (!Can("View") || EditorOpen) Clear();
+        NotifyState();
+    }
     public bool CanCancel=>!Busy&&!lifetime.IsStopping;
     private bool dirty;
     public bool Dirty {get=>dirty;private set=>SetProperty(ref dirty,value);}
@@ -122,15 +136,15 @@ public sealed class CustomerViewModel : ObservableObject,IDisposable
         NotesFields=[CustomerEditorFields.Long("Notes","Customer notes"),CustomerEditorFields.Long("InternalRemarks","Internal remarks — Super Admin only")];
         foreach(var (_,fields) in Groups) foreach(var field in fields) field.Changed+=_=>{if(!loading&&EditorOpen){Dirty=true;OnPropertyChanged(nameof(CreditWarning));}};
         RefreshCommand=new AsyncRelayCommand(()=>RefreshAsync(true),()=>CanBrowse);
-        AddCommand=new RelayCommand(()=>{if(CanBrowse&&company is not null) Open(null,false);},()=>CanBrowse&&company is not null);
-        EditCommand=new AsyncRelayCommand(()=>OpenSelected(false),()=>CanBrowse&&Selected is not null);
-        ViewCommand=new AsyncRelayCommand(()=>OpenSelected(true),()=>CanBrowse&&Selected is not null);
+        AddCommand=new RelayCommand(()=>{if(CanBrowse&&company is not null && Can("Create")) Open(null,false);},()=>CanBrowse&&company is not null&&Can("Create"));
+        EditCommand=new AsyncRelayCommand(()=>OpenSelected(false),()=>CanBrowse&&Selected is not null&&Can("Edit"));
+        ViewCommand=new AsyncRelayCommand(()=>OpenSelected(true),()=>CanBrowse&&Selected is not null&&Can("View"));
         EditViewedCommand=new AsyncRelayCommand(()=>OpenById(editing?.Id,false),
-            ()=>EditorOpen&&ViewOnly&&editing is not null&&!Busy&&!lifetime.IsStopping&&!disposed);
-        StatusCommand=new AsyncRelayCommand<string>(ChangeStatus, _=>CanBrowse&&Selected is not null);
+            ()=>EditorOpen&&ViewOnly&&editing is not null&&!Busy&&!lifetime.IsStopping&&!disposed&&Can("Edit"));
+        StatusCommand=new AsyncRelayCommand<string>(ChangeStatus, _=>CanBrowse&&Selected is not null&&Can("StatusChange"));
         SaveCommand=new AsyncRelayCommand(Save,()=>CanEdit);
         PreviousPageCommand=new AsyncRelayCommand(()=>MovePage(-1),()=>CanBrowse&&page>1);
-        NextPageCommand=new AsyncRelayCommand(()=>MovePage(1),()=>CanBrowse&&page*50<total);
+        NextPageCommand=new AsyncRelayCommand(()=>MovePage(1),()=>CanBrowse&&page*SettingsDisplay.Current.Get(SettingsRegistry.PageSize)<total);
         AddBillingCommand=new RelayCommand(()=>AddAddress("Billing"),()=>CanEdit);
         AddShippingCommand=new RelayCommand(()=>AddAddress("Shipping"),()=>CanEdit);
         AddContactCommand=new RelayCommand(AddContact,()=>CanEdit);
@@ -141,6 +155,9 @@ public sealed class CustomerViewModel : ObservableObject,IDisposable
     private void NotifyState()
     {
         OnPropertyChanged(nameof(CanEdit));OnPropertyChanged(nameof(CanCancel));
+        OnPropertyChanged(nameof(CanEditCredit));OnPropertyChanged(nameof(CanEditBank));OnPropertyChanged(nameof(CanSeeBank));
+        GeneralFields.Single(x=>x.Name=="Status").ReadOnly=!Can("StatusChange");
+        NotesFields.Single(x=>x.Name=="InternalRemarks").ReadOnly=!Can("InternalNotes");
         RefreshCommand?.NotifyCanExecuteChanged();AddCommand?.NotifyCanExecuteChanged();EditCommand?.NotifyCanExecuteChanged();
         ViewCommand?.NotifyCanExecuteChanged();EditViewedCommand?.NotifyCanExecuteChanged();StatusCommand?.NotifyCanExecuteChanged();SaveCommand?.NotifyCanExecuteChanged();
         PreviousPageCommand?.NotifyCanExecuteChanged();NextPageCommand?.NotifyCanExecuteChanged();AddBillingCommand?.NotifyCanExecuteChanged();
@@ -192,7 +209,7 @@ public sealed class CustomerViewModel : ObservableObject,IDisposable
         Message=result.Outcome switch {
             CustomerOutcome.Success=>"Ready.",CustomerOutcome.InvalidInput=>"Correct the highlighted fields.",
             CustomerOutcome.DuplicateWarning=>"Similar customers exist. Review the warning before saving a separate record.",
-            CustomerOutcome.SessionRequired=>"Session expired. Sign in again.",CustomerOutcome.Forbidden=>"Customer Master requires Super Admin authorization.",
+            CustomerOutcome.SessionRequired=>"Session expired. Sign in again.",CustomerOutcome.Forbidden=>"Customer access is denied for this operation or company.",
             CustomerOutcome.NoCompany=>"Select an active company in Company Master.",CustomerOutcome.CompanyChanged=>"Company context changed. Customer selection was cleared; refresh.",
             CustomerOutcome.Conflict=>"The customer changed or a unique value conflicts. Cancel, refresh and review the latest data.",
             CustomerOutcome.NotFound=>"Customer not found in the current company.",CustomerOutcome.Ineligible=>"Customer is not eligible for new invoice selection.",
@@ -220,7 +237,7 @@ public sealed class CustomerViewModel : ObservableObject,IDisposable
     {
         if(company is null) return;
         var selectedId=Selected?.Id;
-        var filter=new CustomerFilter(MasterSearch.Query(Search),StatusFilter,RegistrationFilter,page,50);
+        var filter=new CustomerFilter(MasterSearch.Query(Search),StatusFilter,RegistrationFilter,page,SettingsDisplay.Current.Get(SettingsRegistry.PageSize));
         var result=await Send(new(CustomerOperation.List,company.CompanyId,Filter:filter),ct);
         if (result.Outcome==CustomerOutcome.Success &&
             (filter.Search!=MasterSearch.Query(Search) || filter.Status!=StatusFilter || filter.RegistrationType!=RegistrationFilter)) return;
@@ -239,7 +256,13 @@ public sealed class CustomerViewModel : ObservableObject,IDisposable
     });
     private void Open(CustomerDetail? detail,bool readOnly)
     {
-        loading=true;editing=detail;ViewOnly=readOnly;var draft=detail?.Draft ?? new CustomerDraft();
+        loading=true;editing=detail;ViewOnly=readOnly;
+        var defaults=SettingsDisplay.Current;
+        var draft=detail?.Draft ?? (Can("CreditEdit")?new CustomerDraft {Credit=new CustomerCreditDraft
+        {
+            PaymentTerms=defaults.Get(SettingsRegistry.PaymentTerms),CreditDays=defaults.Get(SettingsRegistry.CreditDays),
+            PurchaseOrderRequired=defaults.Get(SettingsRegistry.RequirePo)
+        }}:new CustomerDraft());
         CustomerEditorFields.Load(GeneralFields,draft);CustomerEditorFields.Load(TaxFields,draft);CustomerEditorFields.Load(NotesFields,draft);
         if(detail is null) GeneralFields.Single(x=>x.Name=="Code").Text="Assigned on save";
         CustomerEditorFields.Load(CreditFields,draft.Credit);CustomerEditorFields.Load(OpeningFields,draft.Opening);

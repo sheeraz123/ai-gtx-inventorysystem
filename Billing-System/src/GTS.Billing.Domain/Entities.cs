@@ -21,6 +21,21 @@ public sealed class Installation : Record
 }
 public sealed class User : Record
 {
+    public string? FullName { get; set; }
+    public string? DisplayName { get; set; }
+    public string? Email { get; set; }
+    public string? MobileNumber { get; set; }
+    public string? EmployeeCode { get; set; }
+    public string? Designation { get; set; }
+    public string? Department { get; set; }
+    public bool IsLocked { get; set; }
+    public bool MustChangePassword { get; set; }
+    public DateTime? LastSuccessfulLoginUtc { get; set; }
+    public DateTime? LastPasswordChangedUtc { get; set; }
+    public DateTime? CreatedUtc { get; set; }
+    public DateTime? UpdatedUtc { get; set; }
+    public Guid? CreatedByUserId { get; set; }
+    public Guid? UpdatedByUserId { get; set; }
     public string Username { get; set; } = ""; public string NormalizedUsername { get; set; } = ""; public string PasswordHash { get; set; } = ""; public bool IsActive { get; set; } = true;
 }
 public sealed class SuperAdminAssignment
@@ -32,6 +47,14 @@ public sealed class SuperAdminAssignment
 }
 public sealed class Role : Record
 {
+    public string? Code { get; set; }
+    public string? Description { get; set; }
+    public bool IsSystemRole { get; set; }
+    public bool IsActive { get; set; } = true;
+    public DateTime? CreatedUtc { get; set; }
+    public DateTime? UpdatedUtc { get; set; }
+    public Guid? CreatedByUserId { get; set; }
+    public Guid? UpdatedByUserId { get; set; }
     public string Name { get; set; } = "";
 }
 public sealed class Module
@@ -242,6 +265,18 @@ public sealed class FinancialYear : CompanyRecord
         get; set;
     }
     public string Status { get; set; } = "Open";
+    public string Code { get; set; } = "";
+    public string Name { get; set; } = "";
+    public bool IsCurrent { get; set; }
+    public DateTime? ClosedUtc { get; set; }
+    public Guid? ClosedBy { get; set; }
+    public DateTime? ReopenedUtc { get; set; }
+    public Guid? ReopenedBy { get; set; }
+    public string? ReopenReason { get; set; }
+    public DateTime? CreatedUtc { get; set; }
+    public DateTime? UpdatedUtc { get; set; }
+    public Guid? CreatedBy { get; set; }
+    public Guid? UpdatedBy { get; set; }
 }
 public sealed class DocumentNumberingSeries : CompanyRecord
 {
@@ -250,6 +285,17 @@ public sealed class DocumentNumberingSeries : CompanyRecord
         get; set;
     }
     public string DocumentType { get; set; } = "TaxInvoice"; public string Prefix { get; set; } = "GT"; public long StartingNumber { get; set; } = 1; public int Padding { get; set; } = 4;
+    public Guid FinancialYearId { get; set; }
+    public string Code { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Separator { get; set; } = "";
+    public string Suffix { get; set; } = "";
+    public bool IsDefault { get; set; }
+    public bool IsActive { get; set; } = true;
+    public DateTime? CreatedUtc { get; set; }
+    public DateTime? UpdatedUtc { get; set; }
+    public Guid? CreatedBy { get; set; }
+    public Guid? UpdatedBy { get; set; }
 }
 public sealed class NumberCounter : CompanyRecord
 {

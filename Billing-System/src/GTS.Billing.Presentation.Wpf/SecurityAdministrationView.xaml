@@ -1,0 +1,184 @@
+<UserControl x:Class="GTS.Billing.Presentation.Wpf.SecurityAdministrationView"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:GTS.Billing.Presentation.Wpf">
+ <UserControl.Resources>
+  <BooleanToVisibilityConverter x:Key="Visible"/>
+  <Style TargetType="Button"><Setter Property="Padding" Value="9,5"/><Setter Property="Margin" Value="0,0,6,4"/></Style>
+  <Style TargetType="HeaderedContentControl"><Setter Property="Margin" Value="0,0,0,7"/></Style>
+  <DataTemplate DataType="{x:Type local:CustomerField}">
+   <StackPanel Margin="0,0,0,7">
+    <TextBlock Text="{Binding Label}"/>
+    <TextBox Text="{Binding Text,UpdateSourceTrigger=PropertyChanged}" IsReadOnly="{Binding ReadOnly}"
+     MaxLength="500" Padding="5" AutomationProperties.Name="{Binding Label}"/>
+    <TextBlock Text="{Binding Error}" Foreground="#A31621" TextWrapping="Wrap"/>
+   </StackPanel>
+  </DataTemplate>
+  <DataTemplate DataType="{x:Type local:SecurityCheck}">
+   <CheckBox Content="{Binding Label}" IsChecked="{Binding Selected,Mode=TwoWay}" IsEnabled="{Binding Enabled}" Margin="0,3"/>
+  </DataTemplate>
+ </UserControl.Resources>
+ <DockPanel Margin="16">
+  <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+   <TextBlock Text="{DynamicResource Display.User.Title}" FontSize="25" FontWeight="SemiBold"/>
+   <ListBox ItemsSource="{Binding Sections}" SelectedItem="{Binding Section}" DisplayMemberPath="Label"
+    Margin="0,7,0,4" BorderThickness="0" Background="Transparent" AutomationProperties.Name="Security administration section">
+    <ListBox.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate></ListBox.ItemsPanel>
+    <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="Padding" Value="10,5"/><Setter Property="Margin" Value="0,0,4,0"/></Style></ListBox.ItemContainerStyle>
+   </ListBox>
+   <local:NoticeBanner Text="{Binding Message}" Margin="0,4" />
+   <ProgressBar IsIndeterminate="True" Height="4" Visibility="{Binding Busy,Converter={StaticResource Visible}}"/>
+  </StackPanel>
+  <Grid>
+   <DockPanel>
+    <DockPanel.Style><Style TargetType="DockPanel"><Style.Triggers>
+     <DataTrigger Binding="{Binding EditorOpen}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+    </Style.Triggers></Style></DockPanel.Style>
+    <StackPanel DockPanel.Dock="Top">
+     <WrapPanel Margin="0,0,0,5" Visibility="{Binding ShowStatusFilter,Converter={StaticResource Visible}}">
+      <TextBox Width="180" Padding="5" Margin="0,0,6,0" MaxLength="100" Text="{Binding Search,UpdateSourceTrigger=PropertyChanged}"
+       ToolTip="Search starts at three characters" AutomationProperties.Name="Search users or roles"/>
+      <ComboBox ItemsSource="{Binding StatusChoices}" SelectedItem="{Binding StatusFilter}" DisplayMemberPath="Label"
+       Width="125" Margin="0,0,6,0" AutomationProperties.Name="Status filter"/>
+      <local:SearchableComboBox SearchItemsSource="{Binding CompanyFilters}" SelectedItem="{Binding CompanyFilter}" DisplayMemberPath="Label"
+       Width="180" Visibility="{Binding CanChooseCompanyFilter,Converter={StaticResource Visible}}" AutomationProperties.Name="Company filter"/>
+     </WrapPanel>
+     <WrapPanel Visibility="{Binding IsAudit,Converter={StaticResource Visible}}" Margin="0,0,0,6">
+      <StackPanel Margin="0,0,6,0"><TextBlock Text="{DynamicResource Display.User.Text.FromDate}"/><DatePicker SelectedDate="{Binding AuditFrom}" SelectedDateChanged="AuditDateChanged" AutomationProperties.Name="Audit from date"/></StackPanel>
+      <StackPanel Margin="0,0,6,0"><TextBlock Text="{DynamicResource Display.User.Text.ThroughDate}"/><DatePicker SelectedDate="{Binding AuditTo}" SelectedDateChanged="AuditDateChanged" AutomationProperties.Name="Audit through date"/></StackPanel>
+      <StackPanel Margin="0,0,6,0"><TextBlock Text="{DynamicResource Display.User.Text.Event}"/><TextBox Text="{Binding AuditEvent,UpdateSourceTrigger=PropertyChanged}" TextChanged="AuditTextChanged" Width="105" MaxLength="100" AutomationProperties.Name="Audit event"/></StackPanel>
+      <StackPanel Margin="0,0,6,0"><TextBlock Text="{DynamicResource Display.User.Text.Actor}"/><TextBox Text="{Binding AuditActor,UpdateSourceTrigger=PropertyChanged}" TextChanged="AuditTextChanged" Width="105" MaxLength="100" AutomationProperties.Name="Audit actor"/></StackPanel>
+      <StackPanel Margin="0,0,6,0"><TextBlock Text="{DynamicResource Display.User.Text.TargetUser}"/><TextBox Text="{Binding AuditTarget,UpdateSourceTrigger=PropertyChanged}" TextChanged="AuditTextChanged" Width="105" MaxLength="100" AutomationProperties.Name="Audit target user"/></StackPanel>
+      <StackPanel><TextBlock Text="{DynamicResource Display.User.Text.Outcome}"/><TextBox Text="{Binding AuditOutcome,UpdateSourceTrigger=PropertyChanged}" TextChanged="AuditTextChanged" Width="105" MaxLength="40" AutomationProperties.Name="Audit outcome"/></StackPanel>
+     </WrapPanel>
+     <WrapPanel Margin="0,3">
+      <Button Content="{DynamicResource Display.Common.Refresh}" Command="{Binding RefreshCommand}"/>
+      <Button Content="{DynamicResource Display.Common.Add}" Command="{Binding AddCommand}" Visibility="{Binding CanCreate,Converter={StaticResource Visible}}"/>
+      <Button Content="{DynamicResource Display.User.Content.ViewDetails}" Command="{Binding OpenRowCommand}" Visibility="{Binding ShowStatusFilter,Converter={StaticResource Visible}}"/>
+     </WrapPanel>
+    </StackPanel>
+    <WrapPanel DockPanel.Dock="Bottom" Margin="0,7,0,0">
+     <Button Content="{DynamicResource Display.User.Content.Previous}" Command="{Binding PreviousCommand}"/>
+     <TextBlock Text="{Binding PageCaption}" Margin="4,4,10,0"/>
+     <Button Content="{DynamicResource Display.User.Content.Next}" Command="{Binding NextCommand}"/>
+    </WrapPanel>
+    <Grid>
+     <DataGrid ItemsSource="{Binding Users}" SelectedItem="{Binding SelectedUser}" AutoGenerateColumns="False" IsReadOnly="True"
+      CanUserAddRows="False" SelectionMode="Single" local:MasterGridInteraction.ViewRowCommand="{Binding OpenRowCommand}"
+      Visibility="{Binding IsUsers,Converter={StaticResource Visible}}" AutomationProperties.Name="Users" local:SettingsDisplay.GridId="Users">
+      <DataGrid.Columns>
+         <DataGridTextColumn Header="Username" local:SettingsDisplay.LabelKey="User.Grid.Username" Binding="{Binding Username}"/>
+         <DataGridTextColumn Header="Full name" local:SettingsDisplay.LabelKey="User.Grid.FullName" Binding="{Binding FullName}" Width="*"/>
+         <DataGridTextColumn Header="Employee code" local:SettingsDisplay.LabelKey="User.Grid.EmployeeCode" Binding="{Binding EmployeeCode}"/>
+         <DataGridTextColumn Header="Roles" local:SettingsDisplay.LabelKey="User.Grid.Roles" Binding="{Binding RoleNames}"/>
+         <DataGridTextColumn Header="Companies" local:SettingsDisplay.LabelKey="User.Grid.Companies" Binding="{Binding CompanyNames}"/>
+         <DataGridTextColumn Header="Status" local:SettingsDisplay.LabelKey="User.Grid.Status" Binding="{Binding Status}"/>
+       <DataGridCheckBoxColumn Header="Locked" local:SettingsDisplay.LabelKey="User.Grid.Locked" Binding="{Binding IsLocked}"/>
+       <DataGridTextColumn Header="Last login (UTC)" local:SettingsDisplay.LabelKey="User.Grid.LastLoginUTC" Binding="{Binding LastLogin,StringFormat=g}"/>
+      </DataGrid.Columns>
+     </DataGrid>
+     <DataGrid ItemsSource="{Binding Roles}" SelectedItem="{Binding SelectedRole}" AutoGenerateColumns="False" IsReadOnly="True"
+      CanUserAddRows="False" SelectionMode="Single" local:MasterGridInteraction.ViewRowCommand="{Binding OpenRowCommand}"
+      Visibility="{Binding IsRoles,Converter={StaticResource Visible}}" AutomationProperties.Name="Roles" local:SettingsDisplay.GridId="Roles">
+      <DataGrid.Columns>
+         <DataGridTextColumn Header="Code" local:SettingsDisplay.LabelKey="User.Grid.Code" Binding="{Binding Code}"/>
+         <DataGridTextColumn Header="Name" local:SettingsDisplay.LabelKey="User.Grid.Name" Binding="{Binding Name}"/>
+         <DataGridTextColumn Header="Description" local:SettingsDisplay.LabelKey="User.Grid.Description" Binding="{Binding Description}" Width="*"/>
+         <DataGridTextColumn Header="Status" local:SettingsDisplay.LabelKey="User.Grid.Status" Binding="{Binding Status}"/>
+         <DataGridTextColumn Header="Members" local:SettingsDisplay.LabelKey="User.Grid.Members" Binding="{Binding MemberCount}"/>
+       <DataGridCheckBoxColumn Header="System role" local:SettingsDisplay.LabelKey="User.Grid.SystemRole" Binding="{Binding IsSystemRole}"/>
+      </DataGrid.Columns>
+     </DataGrid>
+     <DataGrid ItemsSource="{Binding Audit}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
+      Visibility="{Binding IsAudit,Converter={StaticResource Visible}}" AutomationProperties.Name="Read-only security audit">
+      <DataGrid.Columns>
+       <DataGridTextColumn Header="Time (UTC)" local:SettingsDisplay.LabelKey="User.Grid.TimeUTC" Binding="{Binding OccurredUtc,StringFormat=g}"/>
+       <DataGridTextColumn Header="Event" local:SettingsDisplay.LabelKey="User.Grid.Event" Binding="{Binding Event}" Width="*"/>
+       <DataGridTextColumn Header="Actor" local:SettingsDisplay.LabelKey="User.Grid.Actor" Binding="{Binding Actor}"/>
+       <DataGridTextColumn Header="Target user" local:SettingsDisplay.LabelKey="User.Grid.TargetUser" Binding="{Binding Target}"/>
+       <DataGridTextColumn Header="Outcome" local:SettingsDisplay.LabelKey="User.Grid.Outcome" Binding="{Binding Outcome}"/>
+      </DataGrid.Columns>
+     </DataGrid>
+    </Grid>
+   </DockPanel>
+   <Border Background="{DynamicResource Palette.Canvas}" Padding="8" Visibility="{Binding EditorOpen,Converter={StaticResource Visible}}">
+    <DockPanel>
+     <WrapPanel DockPanel.Dock="Bottom" Margin="0,7,0,0">
+      <Button Content="{DynamicResource Display.Common.Edit}" Command="{Binding EditCommand}" Visibility="{Binding CanEditViewed,Converter={StaticResource Visible}}"/>
+      <Button Content="_Reset password" Command="{Binding ResetPasswordCommand}" Visibility="{Binding CanReset,Converter={StaticResource Visible}}"/>
+      <Button Content="{DynamicResource Display.Common.Save}" Click="Save" Visibility="{Binding Editing,Converter={StaticResource Visible}}" IsEnabled="{Binding CanWrite}"/>
+      <Button Command="{Binding CloseEditorCommand}">
+       <Button.Style><Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+        <Setter Property="Content" Value="{DynamicResource Display.Common.Close}"/>
+        <Style.Triggers><DataTrigger Binding="{Binding Editing}" Value="True"><Setter Property="Content" Value="{DynamicResource Display.Common.Cancel}"/></DataTrigger></Style.Triggers>
+       </Style></Button.Style>
+      </Button>
+     </WrapPanel>
+     <ScrollViewer VerticalScrollBarVisibility="Auto">
+      <StackPanel Margin="5">
+       <StackPanel>
+        <StackPanel.Style><Style TargetType="StackPanel"><Style.Triggers>
+         <DataTrigger Binding="{Binding Resetting}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+        </Style.Triggers></Style></StackPanel.Style>
+        <GroupBox Header="{DynamicResource Display.User.Header.GeneralDetails}" Margin="0,0,0,7">
+         <ItemsControl ItemsSource="{Binding Fields}" IsEnabled="{Binding CanWrite}" Margin="8"/>
+        </GroupBox>
+        <GroupBox Header="{DynamicResource Display.User.Header.AccountOrRoleStatus}" Margin="0,0,0,7">
+         <StackPanel IsEnabled="{Binding CanWrite}" Margin="8">
+          <CheckBox Content="{DynamicResource Display.Common.Active}" IsChecked="{Binding Active}" Margin="0,3"/>
+          <CheckBox Content="{DynamicResource Display.User.Content.AdministrativelyLocked}" IsChecked="{Binding Locked}" Margin="0,3" Visibility="{Binding ShowUserControls,Converter={StaticResource Visible}}"/>
+          <CheckBox Content="Require a password change" IsChecked="{Binding RequireChange}" IsEnabled="{Binding CanRequireChange}"
+           Margin="0,3" Visibility="{Binding ShowUserControls,Converter={StaticResource Visible}}"/>
+         </StackPanel>
+        </GroupBox>
+       </StackPanel>
+       <GroupBox Header="{DynamicResource Display.User.Header.CompanyAccessRoles}" Margin="0,0,0,7" Visibility="{Binding ShowUserControls,Converter={StaticResource Visible}}">
+        <StackPanel Margin="8" IsEnabled="{Binding CanWrite}">
+         <TextBlock Text="{DynamicResource Display.User.Text.GrantAccessToEachCompanyThenSelectTheRolesForThatCompany}" TextWrapping="Wrap"/>
+         <ItemsControl ItemsSource="{Binding Companies}" Margin="0,5"/>
+         <ComboBox ItemsSource="{Binding AssignmentPages}" SelectedItem="{Binding AssignmentPage}"
+          DisplayMemberPath="Label" AutomationProperties.Name="Company whose roles are being assigned"/>
+         <ItemsControl ItemsSource="{Binding AssignmentPage.Roles}" Margin="0,5"/>
+        </StackPanel>
+       </GroupBox>
+       <GroupBox Header="{DynamicResource Display.User.Header.RolePermissionMatrix}" Margin="0,0,0,7" Visibility="{Binding ShowRoleControls,Converter={StaticResource Visible}}">
+        <StackPanel Margin="8">
+         <TextBlock Text="Checked actions are available when this role is active and assigned in a company the user can access. A company-specific denial still takes precedence." TextWrapping="Wrap"/>
+         <ItemsControl ItemsSource="{Binding PermissionGroups}" IsEnabled="{Binding CanWrite}" Margin="0,7,0,0">
+          <ItemsControl.ItemTemplate><DataTemplate>
+           <DockPanel Margin="0,4"><TextBlock DockPanel.Dock="Left" Text="{Binding Module}" Width="120" FontWeight="SemiBold"/>
+            <ItemsControl ItemsSource="{Binding Items}">
+             <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+             <ItemsControl.ItemContainerStyle><Style TargetType="ContentPresenter"><Setter Property="Margin" Value="0,0,12,0"/></Style></ItemsControl.ItemContainerStyle>
+            </ItemsControl>
+           </DockPanel>
+          </DataTemplate></ItemsControl.ItemTemplate>
+         </ItemsControl>
+        </StackPanel>
+       </GroupBox>
+       <GroupBox Header="{DynamicResource Display.User.Header.RoleMembers}" Margin="0,0,0,7" Visibility="{Binding ShowRoleControls,Converter={StaticResource Visible}}">
+        <StackPanel Margin="8">
+         <TextBlock Text="{DynamicResource Display.User.Text.AssignOrRemoveThisRoleInTheUserSCompanyAccessRolesSection}" TextWrapping="Wrap"/>
+         <ItemsControl ItemsSource="{Binding Members}">
+          <ItemsControl.ItemTemplate><DataTemplate><TextBlock Margin="0,3"><Run Text="{Binding Username}"/><Run Text=" · "/><Run Text="{Binding Company}"/></TextBlock></DataTemplate></ItemsControl.ItemTemplate>
+         </ItemsControl>
+        </StackPanel>
+       </GroupBox>
+       <GroupBox Header="Temporary password" Margin="0,0,0,7" Visibility="{Binding NeedsPassword,Converter={StaticResource Visible}}">
+        <StackPanel Margin="8" IsEnabled="{Binding CanWrite}">
+         <TextBlock Text="{DynamicResource Display.User.Text.UseAPassphraseOfAtLeast15CharactersTheUserMustChangeItAtSignIn}" TextWrapping="Wrap"/>
+         <Label Content="_Temporary password" Target="{Binding ElementName=TemporaryPassword}"/>
+         <PasswordBox x:Name="TemporaryPassword" MaxLength="512" AutomationProperties.Name="Temporary password"/>
+         <Label Content="C_onfirm password" Target="{Binding ElementName=Confirmation}"/>
+         <PasswordBox x:Name="Confirmation" MaxLength="512" AutomationProperties.Name="Confirm temporary password"/>
+        </StackPanel>
+       </GroupBox>
+       <TextBlock Text="{Binding SecurityInformation}" TextWrapping="Wrap" Visibility="{Binding ShowUserControls,Converter={StaticResource Visible}}" Margin="0,4"/>
+       <TextBlock Text="{Binding AuditInformation}" TextWrapping="Wrap" Margin="0,4"/>
+      </StackPanel>
+     </ScrollViewer>
+    </DockPanel>
+   </Border>
+  </Grid>
+ </DockPanel>
+</UserControl>

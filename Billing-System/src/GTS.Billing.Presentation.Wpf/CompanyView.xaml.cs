@@ -26,7 +26,7 @@ public partial class CompanyView : UserControl
             else
             {
                 box.SetCurrentValue(System.Windows.Controls.Primitives.Selector.SelectedValueProperty,null);
-                field.FilterChoices(text);
+                field.FilterChoices(MasterSearch.Query(text));
                 box.IsDropDownOpen=true;
                 box.SetCurrentValue(ComboBox.TextProperty,text);
                 if(box.Template.FindName("PART_EditableTextBox",box) is TextBox edit) edit.CaretIndex=text.Length;

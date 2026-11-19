@@ -54,6 +54,8 @@ public sealed partial class CompanyPresentationViewModel(CompanyPresentationServ
     public Action? SessionExpired { get; set; }
     public Action<long>? CompanyVersionChanged { get; set; }
     public bool ReadOnly { get; init; }
+    public AccessSnapshot Access { get; init; }=AccessSnapshot.Denied;
+    private bool Can(string action)=>Access.Allows("Company."+action,CompanyId);
     public Func<bool>? ConfirmDiscard { get; set; }
     public Func<bool>? ConfirmRemoveLogo { get; set; }
     public IReadOnlyList<string> LogoUsages => CompanyPresentationService.LogoUsages;
@@ -82,11 +84,15 @@ public sealed partial class CompanyPresentationViewModel(CompanyPresentationServ
     [ObservableProperty] private string _previewCaption = "";
 
     public bool CanInput => Authorized && !Busy;
-    public bool CanManageRecords => CanInput && !ReadOnly;
-    public bool CanWriteDefaults => CanManageRecords;
-    public bool CanWriteRecord => Editing && CanManageRecords;
+    public bool CanManageLogos => CanInput && !ReadOnly && Can("BrandingManage");
+    public bool CanManageBanks => CanInput && !ReadOnly && Can("BankManage");
+    public bool CanWriteDefaults => CanInput && !ReadOnly && Can("InvoiceSettingsManage");
+    public bool CanEditDefaultBank => CanWriteDefaults && Can("BankManage");
+    public bool CanPreviewDefaults => CanInput && (Can("BankView") || Can("BankManage"));
+    private bool CanManageOpenRecord=>LogoOpen?CanManageLogos:BankOpen?CanManageBanks:TaxOpen&&CanWriteDefaults;
+    public bool CanWriteRecord => Editing && CanManageOpenRecord;
     public bool Viewing => (LogoOpen || BankOpen || TaxOpen) && !Editing;
-    public bool CanEditViewed => Viewing && CanManageRecords && currentLogo?.Retired != true;
+    public bool CanEditViewed => Viewing && CanManageOpenRecord && currentLogo?.Retired != true;
     public bool HasPendingChanges => RecordChanged || Defaults.Draft() != savedDefaults;
     private bool RecordChanged => Editing && (TaxOpen
         ? currentTax is null || TaxDraft()!=currentTax.Draft
@@ -128,8 +134,9 @@ public sealed partial class CompanyPresentationViewModel(CompanyPresentationServ
     private void NotifyState()
     {
         OnPropertyChanged(nameof(CanInput));
-        OnPropertyChanged(nameof(CanManageRecords));
+        OnPropertyChanged(nameof(CanManageLogos));OnPropertyChanged(nameof(CanManageBanks));
         OnPropertyChanged(nameof(CanWriteDefaults));
+        OnPropertyChanged(nameof(CanEditDefaultBank));OnPropertyChanged(nameof(CanPreviewDefaults));
         OnPropertyChanged(nameof(CanWriteRecord));
         OnPropertyChanged(nameof(Viewing));
         OnPropertyChanged(nameof(CanEditViewed));
@@ -161,7 +168,8 @@ public sealed partial class CompanyPresentationViewModel(CompanyPresentationServ
         ct.ThrowIfCancellationRequested();
         if (result.Outcome == CompanyOutcome.SessionRequired) SessionExpired?.Invoke();
         if (result.Outcome == CompanyOutcome.Success && result.CompanyVersion is long version &&
-            request.Action is PresentationAction.SaveLogo or PresentationAction.RemoveLogo or PresentationAction.SaveBank or PresentationAction.SaveDefaults or PresentationAction.SaveTax)
+            request.Action is PresentationAction.SaveLogo or PresentationAction.RemoveLogo or PresentationAction.SaveBank or
+            PresentationAction.SaveDefaults or PresentationAction.SaveTax or PresentationAction.SetInvoiceBank)
             CompanyVersionChanged?.Invoke(version);
         return result;
     }
@@ -219,7 +227,7 @@ public sealed partial class CompanyPresentationViewModel(CompanyPresentationServ
     [RelayCommand]
     private void AddTax()
     {
-        if (CanManageRecords && PrepareToOpen()) ShowTax(null,true);
+        if (CanWriteDefaults && PrepareToOpen()) ShowTax(null,true);
     }
 
     private Task ReadTaxAsync(Guid id,bool edit) => RunAsync(async ct=>
@@ -284,9 +292,9 @@ public sealed partial class CompanyPresentationViewModel(CompanyPresentationServ
     }
 
     private bool CanOpenLogo() => CanInput && !LogoOpen && !BankOpen && SelectedLogo is not null;
-    private bool CanOpenBank() => CanInput && !LogoOpen && !BankOpen && SelectedBank is not null;
-    private bool CanSetInvoiceBank() => !ReadOnly && CanOpenBank() && SelectedBank is { Active: true, Default: false };
-    private bool CanClearInvoiceBank() => CanManageRecords && !BankOpen && !LogoOpen && savedDefaults.BankId is not null;
+    private bool CanOpenBank() => PrepareToOpen() && (Can("BankView") || Can("BankManage")) && SelectedBank is not null;
+    private bool CanSetInvoiceBank() => CanManageBanks && CanOpenBank() && SelectedBank is { Active: true, Default: false };
+    private bool CanClearInvoiceBank() => CanManageBanks && PrepareToOpen() && savedDefaults.BankId is not null;
 
     [RelayCommand(CanExecute = nameof(CanSetInvoiceBank))]
     private Task SetInvoiceBankAsync() => SaveBankDefaultAsync(SelectedBank?.Id);
@@ -297,8 +305,7 @@ public sealed partial class CompanyPresentationViewModel(CompanyPresentationServ
     private Task SaveBankDefaultAsync(Guid? bankId) => RunAsync(async ct =>
     {
         if (defaultsVersion is null) return;
-        var request = new PresentationRequest(PresentationAction.SaveDefaults, CompanyId,
-            Version: defaultsVersion, Defaults: savedDefaults with { BankId = bankId });
+        var request = new PresentationRequest(PresentationAction.SetInvoiceBank,CompanyId,bankId,defaultsVersion);
         if (!Accept(await SendAsync(request, ct))) return;
         await LoadAllAsync(ct);
         if (Message.Length == 0) Message = bankId is null ? "Invoice bank default cleared." : "Invoice bank default saved.";
@@ -321,13 +328,13 @@ public sealed partial class CompanyPresentationViewModel(CompanyPresentationServ
     [RelayCommand]
     private void AddLogo()
     {
-        if (!ReadOnly && PrepareToOpen()) ShowLogo(null, true);
+        if (CanManageLogos && PrepareToOpen()) ShowLogo(null, true);
     }
 
     [RelayCommand]
     private void AddBank()
     {
-        if (!ReadOnly && PrepareToOpen()) ShowBank(null, true);
+        if (CanManageBanks && PrepareToOpen()) ShowBank(null, true);
     }
 
     [RelayCommand]

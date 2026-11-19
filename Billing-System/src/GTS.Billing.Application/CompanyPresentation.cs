@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 
 namespace GTS.Billing.Application;
 
-public enum PresentationAction { ListLogos, GetLogo, SaveLogo, RemoveLogo, ListBanks, GetBank, SaveBank, GetDefaults, SaveDefaults, Snapshot, ListTax, GetTax, SaveTax }
+public enum PresentationAction { ListLogos, GetLogo, SaveLogo, RemoveLogo, ListBanks, GetBank, SaveBank, GetDefaults, SaveDefaults, Snapshot, ListTax, GetTax, SaveTax, SetInvoiceBank }
 public sealed record CompanyTaxDraft(string Gstin, string StateCode, bool Active=true, bool Default=false);
 public sealed record CompanyTaxDetail(Guid Id, long Version, CompanyTaxDraft Draft)
 {
@@ -33,7 +33,7 @@ public sealed record InvoiceBankInformation(Guid SourceId, string? BankName, str
 public sealed record InvoiceSellerTax(Guid RegistrationId, string Gstin, string StateCode);
 public sealed record CompanyInvoicePresentation(Guid CompanyId, DateTime CapturedUtc, InvoiceLogoImage? Primary,
     InvoiceLogoImage? Secondary, InvoiceBankInformation? Bank, string? Header, string? Footer, string? Signatory, string? Terms,
-    InvoiceSellerTax? Tax = null);
+    InvoiceSellerTax? Tax = null,InvoicePresentationOptions? Options=null,InvoiceLogoImage? Signature=null);
 
 public sealed record ManagedLogoImage(string ContentType, byte[] Content, byte[] Thumbnail);
 public interface ICompanyImageProcessor
@@ -63,7 +63,6 @@ public sealed class CompanyPresentationService(AuthenticationService authenticat
             {
                 result = await authentication.RunAuthenticatedAsync(async actor =>
                 {
-                    if (!actor.IsSuperAdmin) return new PresentationResult(CompanyOutcome.Forbidden);
                     ManagedLogoImage? image = null;
                     if (request.Action == PresentationAction.SaveLogo)
                     {

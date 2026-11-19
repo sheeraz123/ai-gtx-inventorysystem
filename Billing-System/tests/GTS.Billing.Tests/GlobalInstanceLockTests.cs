@@ -171,15 +171,18 @@ public sealed class GlobalInstanceLockTests : IDisposable
     }
 
     [Fact]
-    public async Task WpfLogoutClosesApplicationAndAllowsSuccessor()
+    public async Task WpfSignOutRetainsOwnershipUntilApplicationExit()
     {
         var path = Path.Combine(directory, "synthetic.db");
-        await new DevelopmentDatabase(new ConfiguredDatabaseLocation(path)).InitializeAsync();
+        await SalesInvoiceWorkflowTests.ProvisionDisposableDatabaseAsync(path);
         var owner = Start("logout-app", path);
         Assert.Equal("Acquired", await Line(owner));
         Assert.Equal("Authenticated", await Line(owner));
         Assert.Equal(2, await Exit(Start("hold")));
         await owner.StandardInput.WriteLineAsync("logout");
+        Assert.Equal("SignedOut", await Line(owner));
+        Assert.Equal(2, await Exit(Start("hold")));
+        await owner.StandardInput.WriteLineAsync("exit");
         Assert.Equal(0, await Exit(owner));
         var successor = Start("hold");
         Assert.Equal("Acquired", await Line(successor));

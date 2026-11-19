@@ -21,12 +21,24 @@ public sealed class CompanyPresentationStore(DevelopmentDatabase database) : ICo
             if (installation.Id != database.ExpectedInstallationId() || installation.SetupState != "Configured" ||
                 installation.DatabaseMode != "PlaintextDevelopment") return new(CompanyOutcome.Unavailable);
             var user = await db.Set<User>().SingleOrDefaultAsync(x => x.Id == actor.UserId, ct);
-            if (user?.IsActive != true || user.Version != actor.Version) return new(CompanyOutcome.SessionRequired);
-            if (!await db.Set<SuperAdminAssignment>().AnyAsync(x => x.UserId == actor.UserId, ct)) return new(CompanyOutcome.Forbidden);
+            if (user?.IsActive != true || user.IsLocked || user.MustChangePassword || user.Version != actor.Version) return new(CompanyOutcome.SessionRequired);
 
             var company = await db.Set<Company>().SingleOrDefaultAsync(x => x.Id == request.CompanyId && x.IsActive &&
                 db.Set<CompanySelection>().Any(s => s.CompanyId == x.Id), ct);
             if (company is null) return new(CompanyOutcome.NotFound, "Select this active company as Current in Company Master.");
+            var admin=await ScopedAccess.IsSuperAdminAsync(db,actor.UserId,ct);
+            var permissions=admin?null:await ScopedAccess.ResolveAsync(db,actor.UserId,company.Id,ct);
+            bool Can(string permission)=>admin || permissions!.Contains("Company."+permission);
+            var allowed=request.Action switch
+            {
+                PresentationAction.GetBank=>Can("BankView") || Can("BankManage"),
+                PresentationAction.SaveBank or PresentationAction.SetInvoiceBank=>Can("BankManage"),
+                PresentationAction.SaveLogo or PresentationAction.RemoveLogo=>Can("BrandingManage"),
+                PresentationAction.SaveTax or PresentationAction.SaveDefaults=>Can("InvoiceSettingsManage"),
+                PresentationAction.Snapshot=>Can("BankView") || Can("BankManage"),
+                _=>true
+            };
+            if (!Can("View") || !allowed) return new(CompanyOutcome.Forbidden);
             var settings = await db.Set<CompanySettings>().SingleOrDefaultAsync(s => s.CompanyId == company.Id, ct);
             var logos = db.Set<BrandingAsset>().Where(x => x.CompanyId == company.Id && (x.Kind == "Logo1" || x.Kind == "Logo2"));
             var banks = db.Set<CompanyBankAccount>().Where(x => x.CompanyId == company.Id);
@@ -71,7 +83,7 @@ public sealed class CompanyPresentationStore(DevelopmentDatabase database) : ICo
                 case PresentationAction.GetDefaults:
                     return new(CompanyOutcome.Success, Defaults: await ReadDefaults(db, settings, banks, ct), CompanyVersion: company.Version);
                 case PresentationAction.Snapshot:
-                    return await Snapshot(db, company.Id, settings, logos, banks, taxes, now, ct);
+                    return await Snapshot(db, company, settings, logos, banks, taxes, now, ct);
                 case PresentationAction.ListTax:
                     var taxQuery=request.Search?.Trim().ToUpperInvariant() ?? "";
                     var matching=taxQuery.Length>=3
@@ -91,8 +103,14 @@ public sealed class CompanyPresentationStore(DevelopmentDatabase database) : ICo
                 case PresentationAction.SaveBank:
                     result = await WriteBank(db, request, company.Id, actor.UserId, banks, now, ct);
                     break;
+                case PresentationAction.SetInvoiceBank:
+                    if (request.Version!=company.Version) return new(CompanyOutcome.Conflict);
+                    result=await SetDefaultBankAsync(db,banks,request.Id,actor.UserId,ct);
+                    break;
                 case PresentationAction.SaveDefaults:
                     if (request.Version != company.Version) return new(CompanyOutcome.Conflict);
+                    if (!Can("BankManage") && request.Defaults!.BankId != await banks.Where(x=>x.IsDefault && x.IsActive)
+                        .Select(x=>(Guid?)x.Id).SingleOrDefaultAsync(ct)) return new(CompanyOutcome.Forbidden);
                     result = await WriteDefaults(db, request.Defaults!, company.Id, actor.UserId, settings, logos, banks, ct);
                     break;
                 default:
@@ -289,25 +307,8 @@ public sealed class CompanyPresentationStore(DevelopmentDatabase database) : ICo
         var ids = new[] { draft.PrimaryLogo, draft.SecondaryLogo }.OfType<Guid>().ToArray();
         if (await logos.CountAsync(x => ids.Contains(x.Id) && x.IsActive && !x.IsRetired && x.Content != null, ct) != ids.Length)
             return Invalid("Invoice logos must be active images from the current company.");
-        var selected = draft.BankId is Guid id ? await banks.SingleOrDefaultAsync(x => x.Id == id && x.IsActive, ct) : null;
-        if (draft.BankId is not null && selected is null) return Invalid("Choose an active bank from the current company or clear the default.");
-        var prior = await banks.SingleOrDefaultAsync(x => x.IsDefault, ct);
-        if (prior?.Id != selected?.Id)
-        {
-            if (prior is not null)
-            {
-                prior.IsDefault = false;
-                prior.UpdatedUtc = DateTime.UtcNow;
-                prior.UpdatedByUserId = actor;
-                await db.SaveChangesAsync(ct);
-            }
-            if (selected is not null)
-            {
-                selected.IsDefault = true;
-                selected.UpdatedUtc = DateTime.UtcNow;
-                selected.UpdatedByUserId = actor;
-            }
-        }
+        var bankResult=await SetDefaultBankAsync(db,banks,draft.BankId,actor,ct);
+        if (bankResult.Outcome!=CompanyOutcome.Success) return bankResult;
         if (settings is null)
         {
             settings = new CompanySettings { CompanyId = company };
@@ -339,29 +340,65 @@ public sealed class CompanyPresentationStore(DevelopmentDatabase database) : ICo
         return new(CompanyOutcome.Success);
     }
 
-    private static async Task<PresentationResult> Snapshot(BillingDbContext db, Guid company, CompanySettings? settings,
+    private static async Task<PresentationResult> SetDefaultBankAsync(BillingDbContext db,IQueryable<CompanyBankAccount> banks,
+        Guid? bankId,Guid actor,CancellationToken ct)
+    {
+        var selected=bankId is Guid id?await banks.SingleOrDefaultAsync(x=>x.Id==id&&x.IsActive,ct):null;
+        if(bankId is not null && selected is null) return Invalid("Choose an active bank from the current company or clear the default.");
+        var prior = await banks.SingleOrDefaultAsync(x => x.IsDefault, ct);
+        if (prior?.Id != selected?.Id)
+        {
+            if (prior is not null)
+            {
+                prior.IsDefault = false;
+                prior.UpdatedUtc = DateTime.UtcNow;
+                prior.UpdatedByUserId = actor;
+                await db.SaveChangesAsync(ct);
+            }
+            if (selected is not null)
+            {
+                selected.IsDefault = true;
+                selected.UpdatedUtc = DateTime.UtcNow;
+                selected.UpdatedByUserId = actor;
+            }
+        }
+        return new(CompanyOutcome.Success);
+    }
+
+    internal static async Task<PresentationResult> Snapshot(BillingDbContext db, Company company, CompanySettings? settings,
         IQueryable<BrandingAsset> logos, IQueryable<CompanyBankAccount> banks, IQueryable<GstRegistration> taxes, DateTime now, CancellationToken ct)
     {
         var defaults = await ReadDefaults(db, settings, banks, ct);
-        async Task<InvoiceLogoImage?> Image(Guid? id, bool show)
+        var presentation=await SettingsStore.ReadCompanyAsync(db,company.Id,ct);
+        async Task<InvoiceLogoImage?> Image(Guid? id, bool show, string? kind = null)
         {
             if (!show || id is null) return null;
-            var row = await logos.AsNoTracking().Where(x => x.Id == id && x.IsActive && !x.IsRetired)
+            var assets = kind is null ? logos : db.Set<BrandingAsset>().Where(x => x.CompanyId == company.Id && x.Kind == kind);
+            var row = await assets.AsNoTracking().Where(x => x.Id == id && x.IsActive && !x.IsRetired)
                 .Select(x => new { x.Id, x.Content, x.ContentType }).SingleOrDefaultAsync(ct);
             return row is { Content: { } data, ContentType: "image/png" or "image/jpeg" } ?
                 new(row.Id, row.ContentType, ImmutableArray.CreateRange(data)) : null;
         }
         InvoiceBankInformation? bank = null;
-        if (defaults.BankId is Guid bankId)
+        if (defaults.BankId is Guid bankId && (presentation.Get(SettingsRegistry.ShowBank) || defaults.ShowUpi))
         {
             var row = await banks.AsNoTracking().SingleAsync(x => x.Id == bankId && x.IsActive, ct);
-            bank = new(row.Id, row.BankName,row.AccountHolder,row.AccountNumber,row.Ifsc,row.Branch,row.BankAddress,
-                row.PaymentInstructions,defaults.ShowUpi ? row.UpiId : null);
+            var show=presentation.Get(SettingsRegistry.ShowBank);
+            if(show || defaults.ShowUpi && !string.IsNullOrWhiteSpace(row.UpiId))
+                bank = new(row.Id,show?row.BankName:null,
+                    show && presentation.Get(SettingsRegistry.ShowAccountHolder)?row.AccountHolder:null,
+                    show && presentation.Get(SettingsRegistry.ShowAccountNumber)?row.AccountNumber:null,
+                    show && presentation.Get(SettingsRegistry.ShowIfsc)?row.Ifsc:null,
+                    show && presentation.Get(SettingsRegistry.ShowBranch)?row.Branch:null,show?row.BankAddress:null,
+                    show && presentation.Get(SettingsRegistry.ShowPaymentInstructions)?row.PaymentInstructions:null,
+                    defaults.ShowUpi?row.UpiId:null);
         }
         var tax=await taxes.Where(x=>x.IsActive && x.IsInvoiceDefault)
             .Select(x=>new InvoiceSellerTax(x.Id,x.Gstin,x.StateCode)).SingleOrDefaultAsync(ct);
-        return new(CompanyOutcome.Success, Snapshot: new(company, now, await Image(defaults.PrimaryLogo, defaults.ShowPrimary),
-            await Image(defaults.SecondaryLogo, defaults.ShowSecondary), bank, defaults.Header, defaults.Footer, defaults.Signatory, defaults.Terms,tax));
+        var options=SettingsStore.InvoiceOptions(company,presentation);
+        return new(CompanyOutcome.Success, Snapshot: new(company.Id, now, await Image(defaults.PrimaryLogo, defaults.ShowPrimary),
+            await Image(defaults.SecondaryLogo, defaults.ShowSecondary), bank, defaults.Header, defaults.Footer, defaults.Signatory, defaults.Terms,tax,
+            options,await Image(settings?.SignatureAssetId,options.ShowSection("Invoice.Optional.Signatory",false),"Signature")));
     }
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

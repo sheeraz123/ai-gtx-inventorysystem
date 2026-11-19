@@ -32,7 +32,10 @@ public sealed record AuthenticationResult(AuthenticationOutcome Outcome,
 {
     public override string ToString() => Outcome.ToString();
 }
-public sealed record AuthenticatedIdentity(Guid UserId, string Username, long Version, bool IsSuperAdmin);
+public sealed record AuthenticatedIdentity(Guid UserId, string Username, long Version, bool IsSuperAdmin)
+{
+    public bool MustChangePassword { get; init; }
+}
 public interface IApplicationSession
 {
     Task<AuthenticatedIdentity?> GetCurrentAsync(CancellationToken cancellationToken = default);
@@ -66,7 +69,9 @@ public sealed class AuthenticationService(IAuthenticationStore store, IPasswordH
             if (name is null || !ValidNewPassword(password, confirmation)) return Result(AuthenticationOutcome.InvalidInput);
             if (await db.FindUserAsync(name) is not null)
                 return Audit(db, installation, "SetupRejected", AuthenticationOutcome.Rejected);
-            var user = new User { Username = username.Trim(), NormalizedUsername = name, PasswordHash = passwords.Hash(password) };
+            var now=clock.GetUtcNow().UtcDateTime;
+            var user = new User { Username = username.Trim(), NormalizedUsername = name, PasswordHash = passwords.Hash(password),
+                CreatedUtc=now, LastPasswordChangedUtc=now };
             db.Add(user);
             db.Add(new SuperAdminAssignment { UserId = user.Id });
             var codes = IssueCodes(db, user.Id);
@@ -88,12 +93,15 @@ public sealed class AuthenticationService(IAuthenticationStore store, IPasswordH
                 var user = name is null ? null : await db.FindUserAsync(name);
                 var fallback = dummy.Value;
                 var verified = ValidLoginPassword(password) && passwords.Verify(password, user?.PasswordHash ?? fallback);
-                if (!verified || user?.IsActive != true)
+                if (!verified || user?.IsActive != true || user.IsLocked)
                     return (Audit(db, inst, "LoginFailed", AuthenticationOutcome.Rejected).Outcome, null);
                 var admin = (await db.AdminAsync())?.UserId == user.Id;
                 // Current encoded format is versioned. Preserve older hashes until a reviewed upgrade is needed.
+                user.LastSuccessfulLoginUtc=clock.GetUtcNow().UtcDateTime;
+                user.Version=checked(user.Version+1);
                 Audit(db, inst, "LoginSucceeded", AuthenticationOutcome.Success, user.Id);
-                return (AuthenticationOutcome.Success, new AuthenticatedIdentity(user.Id, user.Username, user.Version, admin));
+                return (AuthenticationOutcome.Success, new AuthenticatedIdentity(user.Id, user.Username, user.Version, admin)
+                    { MustChangePassword=user.MustChangePassword });
             }, ct);
             current = identity.Item2;
             return Result(identity.Item1);
@@ -117,6 +125,7 @@ public sealed class AuthenticationService(IAuthenticationStore store, IPasswordH
             try { current = await store.InTransactionAsync(ValidateSessionAsync, ct); }
             catch { current = null; throw; }
             if (current is null) throw new UnauthorizedAccessException();
+            if (current.MustChangePassword) throw new UnauthorizedAccessException();
             try { return await operation(current); }
             catch (UnauthorizedAccessException) { current = null; throw; }
         }, ct);
@@ -126,13 +135,13 @@ public sealed class AuthenticationService(IAuthenticationStore store, IPasswordH
         if (current is null) return null;
         _ = await db.InstallationAsync();
         var user = await db.FindUserAsync(current.UserId);
-        if (user?.IsActive != true || user.Version != current.Version)
+        if (user?.IsActive != true || user.IsLocked || user.Version != current.Version)
         {
             // Callers hold the service gate, so login cannot observe the rejected identity.
             current = null;
             return null;
         }
-        return current with { IsSuperAdmin = (await db.AdminAsync())?.UserId == user.Id };
+        return current with { IsSuperAdmin = (await db.AdminAsync())?.UserId == user.Id, MustChangePassword=user.MustChangePassword };
     }
 
     public Task LogoutAsync(CancellationToken ct = default) => Serialized(async () =>
@@ -161,6 +170,7 @@ public sealed class AuthenticationService(IAuthenticationStore store, IPasswordH
                 var now = clock.GetUtcNow().UtcDateTime;
                 match.ConsumedUtc = now;
                 admin.PasswordHash = passwords.Hash(password);
+                admin.LastPasswordChangedUtc=now;
                 // Always change the concurrency stamp, even if an implementation returns the same hash.
                 admin.Version = checked(admin.Version + 1);
                 Audit(db, inst, "PasswordChanged", AuthenticationOutcome.Success, id);
@@ -186,6 +196,32 @@ public sealed class AuthenticationService(IAuthenticationStore store, IPasswordH
             Audit(db, inst, "RecoveryCodesRegenerated", AuthenticationOutcome.Success, user.Id);
             return new(AuthenticationOutcome.Success, codes);
         }, ct), ct);
+
+    public Task<AuthenticationResult> ChangePasswordAsync(string currentPassword,string password,string confirmation,CancellationToken ct=default) =>
+        Serialized(async () =>
+        {
+            var result=await store.InTransactionAsync(async db =>
+            {
+                var session=await ValidateSessionAsync(db);
+                if (session is null) return Result(AuthenticationOutcome.SessionRequired);
+                var installation=await db.InstallationAsync();
+                if (await Limited(db,"PasswordVerificationFailed"))
+                    return Audit(db,installation,"PasswordChangeThrottled",AuthenticationOutcome.Throttled,session.UserId);
+                var user=(await db.FindUserAsync(session.UserId))!;
+                if (!ValidLoginPassword(currentPassword) || !passwords.Verify(currentPassword,user.PasswordHash))
+                    return Audit(db,installation,"PasswordVerificationFailed",AuthenticationOutcome.Rejected,user.Id);
+                if (!ValidEmployeePassword(user.Username,password,confirmation) || string.Equals(currentPassword,password,StringComparison.Ordinal))
+                    return Result(AuthenticationOutcome.InvalidInput);
+                user.PasswordHash=passwords.Hash(password);
+                user.LastPasswordChangedUtc=clock.GetUtcNow().UtcDateTime;
+                user.MustChangePassword=false;
+                user.Version=checked(user.Version+1);
+                Audit(db,installation,"PasswordChanged",AuthenticationOutcome.Success,user.Id);
+                return Audit(db,installation,"SessionsInvalidated",AuthenticationOutcome.Success,user.Id);
+            },ct);
+            if (result.Outcome==AuthenticationOutcome.Success) current=null;
+            return result;
+        },ct);
 
     private async Task<T> Serialized<T>(Func<Task<T>> operation, CancellationToken ct)
     {
@@ -219,9 +255,9 @@ public sealed class AuthenticationService(IAuthenticationStore store, IPasswordH
         return codes.AsReadOnly();
     }
 
-    private static string? Normalize(string username)
+    internal static string? Normalize(string? username)
     {
-        if (username.Length > 128) return null;
+        if (username is null || username.Length > 128) return null;
         var trimmed = username.Trim();
         return trimmed.Length is >= 3 and <= 40 && trimmed.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-')
             ? trimmed.ToUpperInvariant() : null;
@@ -239,4 +275,10 @@ public sealed class AuthenticationService(IAuthenticationStore store, IPasswordH
     private static bool ValidNewPassword(string password, string confirmation) =>
         ValidLoginPassword(password) && string.Equals(password, confirmation, StringComparison.Ordinal) &&
         password.EnumerateRunes().Count() >= 15 && !string.IsNullOrWhiteSpace(password);
+
+    public static bool ValidEmployeePassword(string username,string password,string confirmation) =>
+        ValidNewPassword(password,confirmation) &&
+        !string.Equals(username.Trim(),password.Trim(),StringComparison.OrdinalIgnoreCase) &&
+        !(password.StartsWith(username.Trim(),StringComparison.OrdinalIgnoreCase) &&
+          password.AsSpan(username.Trim().Length).IndexOfAnyExcept("0123456789!@#._-".AsSpan())<0);
 }

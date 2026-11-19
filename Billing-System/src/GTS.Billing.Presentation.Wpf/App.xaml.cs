@@ -56,6 +56,13 @@ public partial class App : System.Windows.Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        EventManager.RegisterClassHandler(typeof(Window),System.Windows.Input.Keyboard.KeyDownEvent,
+            new System.Windows.Input.KeyEventHandler((sender,args)=>
+            {
+                if(args.Key!=System.Windows.Input.Key.Escape || sender is not Window {Owner:not null} owned) return;
+                args.Handled=true;
+                owned.Close();
+            }));
         var args = startupArguments ?? e.Args;
         var startupStage = "configuration";
         DispatcherUnhandledException += OnDispatcherFailure;
@@ -74,8 +81,9 @@ public partial class App : System.Windows.Application
             }
             var initialize = args.Contains("--initialize-development-database");
             var smoke = args.Contains("--smoke-test");
+            var recovery = args is ["--complete-unit-brand-recovery", _] ? args[1] : null;
             string? path = null;
-            for (var i = 0; i < args.Length; i++)
+            for (var i = 0; recovery is null && i < args.Length; i++)
             {
                 if (args[i] == "--database" && i + 1 < args.Length)
                     path = args[++i];
@@ -121,6 +129,26 @@ public partial class App : System.Windows.Application
             builder.Services.AddSingleton<IProductCatalogStore, ProductCatalogStore>();
             builder.Services.AddSingleton<ProductCatalogService>();
             builder.Services.AddSingleton<CatalogViewModel>();
+            builder.Services.AddSingleton<IUnitBrandStore, UnitBrandStore>();
+            builder.Services.AddSingleton<UnitBrandService>();
+            builder.Services.AddSingleton<UnitBrandViewModel>();
+            builder.Services.AddSingleton<ITaxCatalogStore, TaxCatalogStore>();
+            builder.Services.AddSingleton<TaxCatalogService>();
+            builder.Services.AddSingleton<TaxViewModel>();
+            builder.Services.AddSingleton<INumberingStore, NumberingStore>();
+            builder.Services.AddSingleton<NumberingService>();
+            builder.Services.AddSingleton<NumberingViewModel>();
+            builder.Services.AddSingleton<ISalesInvoiceStore,SalesInvoiceStore>();
+            builder.Services.AddSingleton<SalesInvoiceService>();
+            builder.Services.AddSingleton<IDocumentNumberFinalizer>(sp=>sp.GetRequiredService<SalesInvoiceService>());
+            builder.Services.AddSingleton<SalesInvoiceViewModel>();
+            builder.Services.AddSingleton<ISecurityAdministrationStore, SecurityAdministrationStore>();
+            builder.Services.AddSingleton<SecurityAdministrationService>();
+            builder.Services.AddSingleton<SecurityAdministrationViewModel>();
+            builder.Services.AddSingleton<SettingsStore>();
+            builder.Services.AddSingleton<ISettingsStore>(sp=>sp.GetRequiredService<SettingsStore>());
+            builder.Services.AddSingleton<ApplicationSettingsService>();
+            builder.Services.AddSingleton<SettingsViewModel>();
             builder.Services.AddSingleton<AuthenticationViewModel>();
             var configured = !string.IsNullOrWhiteSpace(selectedPath);
             const string status = "Existing plaintext DEVELOPMENT database verified. Synthetic data only.";
@@ -128,6 +156,13 @@ public partial class App : System.Windows.Application
             builder.Services.AddSingleton<MainWindow>();
             host = builder.Build();
             await lifetime.RunAsync(token => host.StartAsync(token));
+            if (recovery is not null)
+            {
+                startupStage = "database update";
+                var maintenance = host.Services.GetRequiredService<DevelopmentDatabaseMaintenance>();
+                await lifetime.RunAsync(token => Task.Run(() => maintenance.CompleteUnitBrandRecoveryAsync(recovery, token), token));
+                SafeDiagnostics.Record("database-upgrade-completed", "Information");
+            }
             if (initialize || configured)
             {
                 startupStage = "database verification";
@@ -169,9 +204,11 @@ public partial class App : System.Windows.Application
             }
             startupStage = "authentication startup";
             var auth = host.Services.GetRequiredService<AuthenticationViewModel>();
+            SettingsDisplay.Instance.Apply(ResolvedSettings.Empty);
             await auth.StartAsync(configured);
             var window = host.Services.GetRequiredService<MainWindow>();
             MainWindow = window;
+            if(configured) await window.ConfigureLoginAsync(host.Services.GetRequiredService<SettingsStore>());
             if (smoke)
                 window.ContentRendered += (_, _) => Dispatcher.BeginInvoke(new Action(() => RunSmoke(window, auth)), DispatcherPriority.ApplicationIdle);
             window.Show();

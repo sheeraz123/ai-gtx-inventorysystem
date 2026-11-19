@@ -6,18 +6,33 @@ using GTS.Billing.Domain;
 namespace GTS.Billing.Presentation.Wpf;
 
 public sealed record CustomerChoice(string Key,string Label);
-public sealed class CustomerField(string name,string label,string kind="Text",IReadOnlyList<CustomerChoice>? choices=null) : ObservableObject
+public sealed class CustomerField : ObservableObject
 {
-    public string Name {get;}=name;
-    public string Label {get;}=label;
+    private readonly string defaultLabel;
+    public CustomerField(string name,string label,string kind="Text",IReadOnlyList<CustomerChoice>? choices=null)
+    {
+        Name=name;defaultLabel=label;Kind=kind;Choices=choices ?? [];
+        System.Windows.WeakEventManager<SettingsDisplay,EventArgs>.AddHandler(SettingsDisplay.Instance,nameof(SettingsDisplay.Changed),RefreshCaption);
+    }
+    public string Name {get;}
+    public string Label=>SettingsDisplay.Field(defaultLabel);
+    private void RefreshCaption(object? sender,EventArgs e)=>OnPropertyChanged(nameof(Label));
+    public bool IsVisible { get; set; }=true;
     private bool readOnly;
-    public bool ReadOnly { get => readOnly; set => SetProperty(ref readOnly,value); }
-    public string Kind {get;}=kind;
+    public bool ReadOnly
+    {
+        get=>readOnly;
+        set { if(SetProperty(ref readOnly,value)) OnPropertyChanged(nameof(CanInput)); }
+    }
+    public bool CanInput=>!ReadOnly;
+    public string Kind {get;}
     public bool IsText=>Kind is "Text" or "Money" or "Integer" or "Multiline";
     public bool IsDate=>Kind=="Date";
     public bool IsCheck=>Kind=="Check";
     public bool IsChoice=>Kind=="Choice";
-    public IReadOnlyList<CustomerChoice> Choices {get;}=choices ?? [];
+    public bool IsSearchableChoice=>IsChoice && Name is "StateCode" or "GstStateCode" or "Currency";
+    public bool IsFixedChoice=>IsChoice && !IsSearchableChoice;
+    public IReadOnlyList<CustomerChoice> Choices {get;}
     private string text="";
     public string Text
     {
@@ -34,7 +49,10 @@ public sealed class CustomerField(string name,string label,string kind="Text",IR
     public string Error {get=>error;set=>SetProperty(ref error,value);}
     public event Action<CustomerField>? Changed;
 }
-public sealed record CustomerFieldSection(string Title,IReadOnlyList<CustomerField> Fields);
+public sealed record CustomerFieldSection(string Title,IReadOnlyList<CustomerField> Fields)
+{
+    public string Caption=>SettingsDisplay.Section(Title);
+}
 public static class CustomerEditorFields
 {
     public static string ChoiceLabel(string value)=>value switch {"SezUnit"=>"SEZ Unit","SezDeveloper"=>"SEZ Developer",

@@ -1,0 +1,36 @@
+<UserControl x:Class="GTS.Billing.Presentation.Wpf.TaxView"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:GTS.Billing.Presentation.Wpf">
+ <UserControl.Resources>
+  <Style x:Key="TaxToolbarButton" TargetType="Button" BasedOn="{StaticResource BillingButton}">
+   <Setter Property="MinHeight" Value="34"/>
+   <Setter Property="Padding" Value="12,5"/>
+   <Setter Property="Margin" Value="0,0,8,6"/>
+  </Style>
+ </UserControl.Resources>
+ <DockPanel Margin="16">
+  <StackPanel DockPanel.Dock="Top">
+   <TextBlock Text="{Binding Title}" FontSize="26" FontWeight="SemiBold"/>
+   <local:NoticeBanner Text="{Binding Message}" Margin="0,6" />
+   <WrapPanel>
+    <TextBox Width="240" Height="34" Margin="0,0,8,6" Padding="7,4" MaxLength="100" VerticalContentAlignment="Center"
+     AutomationProperties.Name="Search tax records" ToolTip="Search starts after three characters"
+     Text="{Binding SearchText,UpdateSourceTrigger=PropertyChanged}"/>
+    <ComboBox Width="145" Height="34" Margin="0,0,8,6" ItemsSource="{Binding Statuses}" SelectedItem="{Binding Filter}"
+     DisplayMemberPath="Label" AutomationProperties.Name="Status filter"/>
+    <Button Style="{StaticResource TaxToolbarButton}" Content="{DynamicResource Display.Common.Refresh}" Command="{Binding RefreshCommand}"/>
+   </WrapPanel>
+   <WrapPanel Margin="0,4,0,2">
+    <Button Style="{StaticResource TaxToolbarButton}" Content="{DynamicResource Display.Common.Add}" Command="{Binding AddCommand}"/>
+    <Button Style="{StaticResource TaxToolbarButton}" Content="{DynamicResource Display.Common.View}" Command="{Binding ViewCommand}"/>
+    <Button Style="{StaticResource TaxToolbarButton}" Content="{Binding EditCaption}" Command="{Binding EditCommand}"/>
+    <Button Style="{StaticResource TaxToolbarButton}" Content="{DynamicResource Display.Catalog.Content.ActivateDeactivate}" Command="{Binding StatusCommand}"/>
+   </WrapPanel>
+  </StackPanel>
+  <DataGrid x:Name="Records" ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}" IsReadOnly="True"
+   AutoGenerateColumns="False" MinRowHeight="32" CanUserAddRows="False" SelectionMode="Single"
+   Background="{DynamicResource Palette.Surface}" RowBackground="{DynamicResource Palette.Surface}"
+   Foreground="{DynamicResource Palette.Text}" local:MasterGridInteraction.ViewRowCommand="{Binding ViewCommand}"/>
+ </DockPanel>
+</UserControl>

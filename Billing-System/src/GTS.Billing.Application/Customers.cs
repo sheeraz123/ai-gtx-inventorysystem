@@ -15,7 +15,7 @@ public sealed record CustomerEligibility(bool CanSelectForNewInvoice,IReadOnlyLi
 public sealed record CustomerCreditPolicy(bool CustomerActive,bool CreditHold,int CreditDays,decimal CreditLimit,string? PaymentTerms,
     bool PurchaseOrderRequired,bool OutstandingCheckAvailable=false,decimal? OutstandingBalance=null);
 public sealed record CustomerListRow(Guid Id,long Version,string Code,string LegalName,string? TradeName,string? Gstin,string? Mobile,
-    string? City,string? State,int CreditDays,decimal CreditLimit,string Status,bool CreditHold);
+    string? City,string? State,int CreditDays,decimal CreditLimit,string Status,bool CreditHold,string? Currency=null);
 public sealed record CustomerPage(IReadOnlyList<CustomerListRow> Rows,int Total,int Page,int PageSize);
 public sealed record CustomerDetail(Guid Id,long Version,Guid CompanyId,CustomerDraft Draft,Guid OpeningDraftId,long OpeningDraftVersion,
     DateTime CreatedUtc,string CreatedBy,DateTime UpdatedUtc,string UpdatedBy,CustomerEligibility Eligibility);
@@ -57,7 +57,6 @@ public sealed class CustomerService(AuthenticationService authentication,ICustom
         {
             return await authentication.RunAuthenticatedAsync(async actor=>
             {
-                if(!actor.IsSuperAdmin) return new CustomerResult(CustomerOutcome.Forbidden);
                 if(request.Filter is { } f && (f.Page<1 || f.Page>1000000 || f.PageSize is <1 or >100 || f.Search?.Length>100 ||
                     !string.IsNullOrEmpty(f.Status)&&!CustomerRules.Statuses.Contains(f.Status) ||
                     !string.IsNullOrEmpty(f.RegistrationType)&&!CustomerRules.Registrations.Contains(f.RegistrationType)))
@@ -127,7 +126,6 @@ public sealed class CustomerService(AuthenticationService authentication,ICustom
         {
             return await authentication.RunAuthenticatedAsync(async actor=>
             {
-                if(!actor.IsSuperAdmin) return new CustomerFinancialAvailability(false,null,"Access denied.");
                 var result=await store.ExecuteAsync(new(CustomerOperation.Get,company,customer),actor,ct);
                 if(result.Outcome==CustomerOutcome.SessionRequired) throw new UnauthorizedAccessException();
                 if(result.Outcome!=CustomerOutcome.Success) return new CustomerFinancialAvailability(false,null,"Customer financial information is unavailable for the current company.");
@@ -163,4 +161,3 @@ public static class CustomerMutations
         _=>null
     };
 }
-

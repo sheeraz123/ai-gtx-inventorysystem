@@ -2,38 +2,72 @@
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  xmlns:local="clr-namespace:GTS.Billing.Presentation.Wpf"
- Title="GTS Billing System — Development Foundation" Width="1150" Height="760" MinWidth="850" MinHeight="550">
- <Grid Background="#F3F5F8">
+ Title="{DynamicResource Display.App.WindowTitle}" Width="1150" Height="760" MinWidth="850" MinHeight="550">
+ <Window.Resources>
+  <BooleanToVisibilityConverter x:Key="Visible"/>
+  <Style x:Key="ShellSubmenuItem" TargetType="MenuItem">
+   <Setter Property="Header" Value="{Binding Title}"/>
+   <Setter Property="Command" Value="{Binding Navigate}"/>
+   <Setter Property="CommandParameter" Value="{Binding Module}"/>
+   <Setter Property="MinWidth" Value="184"/>
+  </Style>
+  <Style x:Key="ShellMenuHeader" TargetType="MenuItem">
+   <Setter Property="Padding" Value="15,7"/>
+  </Style>
+ </Window.Resources>
+ <Grid Background="{DynamicResource Palette.Canvas}">
  <local:AuthenticationView x:Name="AuthenticationPanel" />
- <DockPanel x:Name="BillingShell" Visibility="Collapsed" Background="#F3F5F8">
-  <Border DockPanel.Dock="Top" Background="#15263C" Padding="24,18"><StackPanel>
-   <TextBlock Text="GTS Billing System" FontSize="25" Foreground="White" FontWeight="SemiBold" />
-   <TextBlock Text="Stage 4C · Company and Customer Masters · Development only" Foreground="#CBD5E1" Margin="0,5,0,0" />
+ <DockPanel x:Name="BillingShell" Visibility="Collapsed" Background="{DynamicResource Palette.Canvas}"
+  TextElement.Foreground="{DynamicResource Palette.Text}" TextElement.FontSize="{DynamicResource Display.FontSize}">
+  <Border DockPanel.Dock="Top" Background="#15263C" Padding="{DynamicResource Display.BodyPadding}"><StackPanel>
+   <TextBlock Text="{DynamicResource Display.App.Title}" FontSize="25" Foreground="White" FontWeight="SemiBold" />
+   <TextBlock Text="{DynamicResource Display.App.Subtitle}" Foreground="#CBD5E1" Margin="0,5,0,0" />
    <TextBlock x:Name="CurrentCompanyIndicator" Text="No company selected" Foreground="White" Margin="0,5,0,0" />
+   <local:NoticeBanner x:Name="SignInNotice" Kind="Success" Margin="0,5,0,0" />
    <WrapPanel Margin="0,10,0,0">
     <Button x:Name="Regenerate" Content="Regenerate recovery codes" Click="RegenerateClicked" Padding="8,4" />
+    <Button Content="Change password" Click="ChangePasswordClicked" Padding="8,4" Margin="8,0,0,0" />
     <Button Content="_Sign out" Click="LogoutClicked" Padding="8,4" Margin="8,0,0,0" />
    </WrapPanel>
   </StackPanel></Border>
   <Border DockPanel.Dock="Bottom" Background="#FFF2CC" Padding="16"><StackPanel>
-   <TextBlock Text="{Binding DevelopmentWarning}" TextWrapping="Wrap" />
-   <TextBlock x:Name="DiagnosticsStatus" Text="{Binding DiagnosticsWarning}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+   <TextBlock Text="{Binding DevelopmentWarning}" Foreground="#332610" TextWrapping="Wrap" />
+   <TextBlock x:Name="DiagnosticsStatus" Text="{Binding DiagnosticsWarning}" Foreground="#332610" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
   </StackPanel></Border>
-  <Border DockPanel.Dock="Left" Width="245" Background="White" Padding="12">
-   <ListBox ItemsSource="{Binding Modules}" SelectedItem="{Binding SelectedModule, Mode=TwoWay}" DisplayMemberPath="Title" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Auto">
-    <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="Padding" Value="9"/><Setter Property="Margin" Value="0,2"/></Style></ListBox.ItemContainerStyle>
-   </ListBox>
+  <Border DockPanel.Dock="Top" Background="{DynamicResource Palette.Surface}" BorderBrush="{DynamicResource Palette.GridLine}" BorderThickness="0,0,0,1" Padding="12,4">
+   <Menu Background="Transparent" Foreground="{DynamicResource Palette.Text}" AutomationProperties.Name="Billing navigation">
+    <MenuItem Header="{DynamicResource Display.Navigation.Dashboard}" Style="{StaticResource ShellMenuHeader}"
+     Command="{Binding NavigateCommand}" CommandParameter="{Binding Dashboard}"/>
+    <MenuItem Header="{DynamicResource Display.Navigation.Master}" Style="{StaticResource ShellMenuHeader}" ItemsSource="{Binding MasterMenu}"
+     Visibility="{Binding HasMasters,Converter={StaticResource Visible}}"
+     ItemContainerStyle="{StaticResource ShellSubmenuItem}" MouseEnter="OpenNavigationSubmenu"/>
+    <MenuItem Header="{DynamicResource Display.Navigation.Transactions}" Style="{StaticResource ShellMenuHeader}" ItemsSource="{Binding TransactionMenu}"
+     Visibility="{Binding HasTransactions,Converter={StaticResource Visible}}"
+     ItemContainerStyle="{StaticResource ShellSubmenuItem}" MouseEnter="OpenNavigationSubmenu"/>
+    <MenuItem Header="{DynamicResource Display.Navigation.Reports}" Style="{StaticResource ShellMenuHeader}"
+     Visibility="{Binding CanSeeReports,Converter={StaticResource Visible}}"
+     Command="{Binding NavigateCommand}" CommandParameter="{Binding Reports}"/>
+    <MenuItem Header="{DynamicResource Display.Navigation.Administration}" Style="{StaticResource ShellMenuHeader}" ItemsSource="{Binding AdministrationMenu}"
+     Visibility="{Binding HasAdministration,Converter={StaticResource Visible}}"
+     ItemContainerStyle="{StaticResource ShellSubmenuItem}" MouseEnter="OpenNavigationSubmenu"/>
+   </Menu>
   </Border>
   <Grid>
   <StackPanel x:Name="PlannedPanel" Margin="32">
-   <TextBlock Text="{Binding SelectedModule.Title}" FontSize="28" FontWeight="SemiBold" />
+   <TextBlock Text="{Binding CurrentHeading}" FontSize="28" FontWeight="SemiBold" />
    <TextBlock Text="{Binding SelectedModule.Status}" Foreground="#7A4C00" FontSize="16" Margin="0,16,0,0" />
-   <TextBlock Text="{Binding SelectedModule.Description}" FontSize="16" TextWrapping="Wrap" Margin="0,14,0,0" />
+   <TextBlock Text="{Binding CurrentDescription}" FontSize="16" TextWrapping="Wrap" Margin="0,14,0,0" />
    <TextBlock Text="{Binding DatabaseStatus}" TextWrapping="Wrap" Margin="0,30,0,0" Foreground="#475569" />
   </StackPanel>
   <local:CompanyView x:Name="CompanyPanel" Visibility="Collapsed" />
   <local:CustomerView x:Name="CustomerPanel" Visibility="Collapsed" />
   <local:CatalogView x:Name="CatalogPanel" Visibility="Collapsed" />
+  <local:UnitBrandView x:Name="UnitBrandPanel" Visibility="Collapsed" />
+  <local:TaxView x:Name="TaxPanel" Visibility="Collapsed" />
+  <local:NumberingView x:Name="NumberingPanel" Visibility="Collapsed"/>
+  <local:SalesInvoiceView x:Name="SalesPanel" Visibility="Collapsed"/>
+  <local:SecurityAdministrationView x:Name="SecurityPanel" Visibility="Collapsed" />
+  <local:SettingsView x:Name="SettingsPanel" Visibility="Collapsed"/>
   </Grid>
  </DockPanel>
  </Grid>

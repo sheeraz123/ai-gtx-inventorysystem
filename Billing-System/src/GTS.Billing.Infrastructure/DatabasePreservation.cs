@@ -10,7 +10,8 @@ internal static class DatabasePreservation
 {
     private static string Q(string value)=>"\""+value.Replace("\"","\"\"")+"\"";
     internal static async Task<List<DatabaseTableFingerprint>> CaptureAsync(SqliteConnection connection,
-        IReadOnlyList<DatabaseTableFingerprint>? expected,CancellationToken ct)
+        IReadOnlyList<DatabaseTableFingerprint>? expected,CancellationToken ct,
+        IReadOnlyList<string>? addedModules=null)
     {
         var specs=expected?.ToList() ?? [];
         if(expected is null)
@@ -47,7 +48,14 @@ internal static class DatabasePreservation
             using var writer=new BinaryWriter(stream,Encoding.UTF8,leaveOpen:true);
             writer.Write(spec.Name);foreach(var column in spec.Columns) writer.Write(column);
             await using var command=connection.CreateCommand();
-            command.CommandText="SELECT "+string.Join(",",spec.Columns.Select(Q))+" FROM "+Q(spec.Name)+" ORDER BY "+string.Join(",",spec.Ordering.Select(Q));
+            var filter="";
+            if(spec.Name=="Modules" && addedModules is {Count:>0})
+            {
+                var parameters=addedModules.Select((code,index)=>"$module"+index).ToArray();
+                for(var i=0;i<parameters.Length;i++) command.Parameters.AddWithValue(parameters[i],addedModules[i]);
+                filter=" WHERE Code NOT IN ("+string.Join(",",parameters)+")";
+            }
+            command.CommandText="SELECT "+string.Join(",",spec.Columns.Select(Q))+" FROM "+Q(spec.Name)+filter+" ORDER BY "+string.Join(",",spec.Ordering.Select(Q));
             await using var rows=await command.ExecuteReaderAsync(ct);long count=0;
             while(await rows.ReadAsync(ct))
             {

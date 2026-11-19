@@ -7,11 +7,14 @@ public enum CatalogUnit { Sales, Purchase, Base }
 public sealed record CatalogRequest(CatalogAction Action, bool Products, Guid? Company = null, Guid? Id = null,
     long? Version = null, string? Search = null, Guid? Category = null, string? Kind = null, bool? Active = null,
     int Page = 0, CategoryDraft? CategoryDraft = null, ProductDraft? ProductDraft = null,
-    byte[]? Upload = null, bool RemoveImage = false, bool AcceptDuplicates = false, CatalogUnit Unit = CatalogUnit.Sales);
+    byte[]? Upload = null, bool RemoveImage = false, bool AcceptDuplicates = false, CatalogUnit Unit = CatalogUnit.Sales,int PageSize=50,
+    Guid? BrandId = null, Guid? SelectedUnitId = null, DateOnly? TaxDate = null, ProductTaxSelection? TaxSelection = null);
+public sealed record ProductTaxSelection(Guid ClassificationId,string Context);
 public sealed record CatalogRow(Guid Id, long Version, string Code, string Name, bool Active, string? Category,
     string? Description = null, int? SortOrder = null, string? Brand = null, string? Kind = null, string? BaseUnit = null,
     string? Hsn = null, decimal? SalesRate = null, decimal? Mrp = null, bool? StockTracked = null,
-    string? SalesUnit = null, decimal? DefaultGstRate = null, bool? TaxExempt = null)
+    string? SalesUnit = null, decimal? DefaultGstRate = null, bool? TaxExempt = null,string? Currency=null,
+    string? Sku=null,string? Barcode=null)
 {
     public string Status => Active ? "Active" : "Inactive";
 }
@@ -20,11 +23,17 @@ public sealed record CatalogDetail(CatalogRow Row, CategoryDraft? Category, Prod
     DateTime CreatedUtc, DateTime UpdatedUtc, string CreatedBy, string UpdatedBy);
 public sealed record ProductInvoiceSnapshot(Guid CompanyId, Guid ProductId, long ProductVersion, string Code, string Name,
     string? Description, string Kind, string? Sku, string? Barcode, string? Hsn, string Unit, int QuantityPrecision,
-    decimal Factor, decimal? DefaultRate, string Currency, bool TaxInclusive, decimal? ProvisionalGstRate, bool TaxExempt, string? TaxNotes);
+    decimal Factor, decimal? DefaultRate, string Currency, bool TaxInclusive, decimal? ProvisionalGstRate, bool TaxExempt, string? TaxNotes,
+    Guid? BrandId = null, string? Brand = null, Guid? UnitId = null, string? UnitSymbol = null, string? Uqc = null,
+    string? Classification = null, TaxSnapshot? Tax = null, string? UnitName = null, decimal? Mrp = null);
+public sealed record ProductVariantDescription(string? Variant, string? Size, string? SizeSystem, string? Color,
+    string? Style = null, string? Model = null, string? Material = null, string? Segment = null);
+public sealed record InvoiceProductLineSnapshot(ProductInvoiceSnapshot Product, decimal Quantity, decimal UnitPrice,
+    string? TaxClassificationReference, ProductVariantDescription? Variant);
 public sealed record CatalogResult(CompanyOutcome Outcome, Guid? Company = null, IReadOnlyList<CatalogRow>? Rows = null,
     IReadOnlyList<CatalogCategory>? Categories = null, CatalogDetail? Detail = null, bool More = false,
     IReadOnlyDictionary<string,string>? Errors = null, string? Message = null, ProductInvoiceSnapshot? Snapshot = null,
-    bool DuplicateWarning = false);
+    bool DuplicateWarning = false, IReadOnlyList<MeasureChoice>? Brands = null);
 
 public interface IProductCatalogStore
 {
@@ -40,6 +49,13 @@ public sealed class ProductCatalogService(AuthenticationService auth, IApplicati
     public Task<CatalogResult> ResolveSnapshotAsync(Guid company, Guid product, CatalogUnit unit, CancellationToken ct = default) =>
         ExecuteAsync(new(CatalogAction.Snapshot, true, company, product, Unit:unit), ct);
 
+    public Task<CatalogResult> ResolveUnitSnapshotAsync(Guid company, Guid product, Guid unit, CancellationToken ct = default) =>
+        ExecuteAsync(new(CatalogAction.Snapshot, true, company, product, SelectedUnitId:unit), ct);
+
+    public Task<CatalogResult> ResolveDatedSnapshotAsync(Guid company, Guid product, CatalogUnit unit, DateOnly transactionDate,
+        Guid? selectedUnitId = null, CancellationToken ct = default) =>
+        ExecuteAsync(new(CatalogAction.Snapshot,true,company,product,Unit:unit,SelectedUnitId:selectedUnitId,TaxDate:transactionDate),ct);
+
     public async Task<CatalogResult> ExecuteAsync(CatalogRequest request, CancellationToken ct = default)
     {
         CatalogResult result = new(CompanyOutcome.Unavailable);
@@ -49,8 +65,7 @@ public sealed class ProductCatalogService(AuthenticationService auth, IApplicati
             {
                 result = await auth.RunAuthenticatedAsync(async actor =>
                 {
-                    if (!actor.IsSuperAdmin) return new CatalogResult(CompanyOutcome.Forbidden);
-                    if (request.Page is < 0 or > 1000000 || request.Search?.Length > 100 ||
+                    if (request.Page is < 0 or > 1000000 || request.PageSize is <10 or >100 || request.Search?.Length > 100 ||
                         request.Action == CatalogAction.Status && request.Active is null ||
                         request.Action is CatalogAction.Lookup or CatalogAction.Snapshot && !request.Products ||
                         request.Action == CatalogAction.Snapshot && !Enum.IsDefined(request.Unit))

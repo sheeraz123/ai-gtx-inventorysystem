@@ -39,7 +39,7 @@ internal sealed class MasterSearch
     public static string Query(string? text)
     {
         var trimmed = text?.Trim() ?? "";
-        return trimmed.Length >= 3 ? trimmed : "";
+        return trimmed.Count(c=>!char.IsWhiteSpace(c)) >= 3 ? trimmed : "";
     }
 
     public void Cancel()
@@ -56,7 +56,7 @@ internal sealed class MasterSearch
         pending = source;
         try
         {
-            if (debounce) await Task.Delay(300, source.Token);
+            if (debounce) await Task.Delay(SettingsDisplay.Current.Get(GTS.Billing.Application.SettingsRegistry.SearchDebounce), source.Token);
             while (busy()) await Task.Delay(30, source.Token);
             source.Token.ThrowIfCancellationRequested();
             await load(source.Token);

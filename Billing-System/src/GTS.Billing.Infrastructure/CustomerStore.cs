@@ -29,11 +29,22 @@ public sealed class CustomerStore(DevelopmentDatabase database) : ICustomerStore
             if(installation.Id!=database.ExpectedInstallationId() || installation.DatabaseMode!="PlaintextDevelopment" || installation.SetupState!="Configured")
                 return new(CustomerOutcome.Unavailable);
             var user=await db.Set<User>().SingleOrDefaultAsync(x=>x.Id==actor.UserId,ct);
-            if(user?.IsActive!=true || user.Version!=actor.Version) return new(CustomerOutcome.SessionRequired);
-            if(!await db.Set<SuperAdminAssignment>().AnyAsync(x=>x.UserId==actor.UserId,ct)) return new(CustomerOutcome.Forbidden);
+            if(user?.IsActive!=true || user.IsLocked || user.MustChangePassword || user.Version!=actor.Version) return new(CustomerOutcome.SessionRequired);
             var selection=await db.Set<CompanySelection>().SingleOrDefaultAsync(ct);
             var company=selection is null?null:await db.Set<Company>().SingleOrDefaultAsync(x=>x.Id==selection.CompanyId&&x.IsActive,ct);
             if(company is null) return new(CustomerOutcome.NoCompany);
+            var admin=await ScopedAccess.IsSuperAdminAsync(db,actor.UserId,ct);
+            var permissions=admin?null:await ScopedAccess.ResolveAsync(db,actor.UserId,company.Id,ct);
+            bool Can(string action)=>admin || permissions!.Contains("Customer."+action);
+            var required=request.Operation switch
+            {
+                CustomerOperation.Create=>"Create",CustomerOperation.Status=>"StatusChange",
+                CustomerOperation.Credit or CustomerOperation.Opening=>"CreditEdit",
+                CustomerOperation.Context or CustomerOperation.List or CustomerOperation.Get or CustomerOperation.InvoiceSelection
+                    or CustomerOperation.Snapshot=>"View",
+                _=>"Edit"
+            };
+            if(!Can("View") || !Can(required)) return new(CustomerOutcome.Forbidden);
             var context=new CustomerCompanyContext(company.Id,company.Code,company.LegalName);
             if(request.Operation==CustomerOperation.Context) return new(CustomerOutcome.Success,context);
             if(request.ExpectedCompanyId!=company.Id) return new(CustomerOutcome.CompanyChanged,context);
@@ -49,7 +60,8 @@ public sealed class CustomerStore(DevelopmentDatabase database) : ICustomerStore
                 var found=await db.Set<Customer>().SingleOrDefaultAsync(x=>x.CompanyId==company.Id&&x.Id==request.CustomerId,ct);
                 if(found is null) return new(CustomerOutcome.NotFound,context);
                 customer=found;
-                if(request.Operation==CustomerOperation.Get) return new(CustomerOutcome.Success,context,await Read(db,customer,ct));
+                if(request.Operation==CustomerOperation.Get)
+                    return new(CustomerOutcome.Success,context,Redact(await Read(db,customer,ct),Can("BankView"),Can("InternalNotes")));
                 if(request.Operation==CustomerOperation.Snapshot) return await Snapshot(db,customer,context,request.Snapshot ?? new(),ct);
                 if(request.ExpectedVersion!=customer.Version) return new(CustomerOutcome.Conflict,context);
             }
@@ -60,10 +72,15 @@ public sealed class CustomerStore(DevelopmentDatabase database) : ICustomerStore
             }
             else
             {
-                var proposed=request.Operation==CustomerOperation.Create?request.Draft:
-                    CustomerMutations.Apply(request,(await Read(db,customer,ct)).Draft);
-                if(proposed is null) return new(CustomerOutcome.InvalidInput,context);
                 var creating=request.Operation==CustomerOperation.Create;
+                var original=creating?new CustomerDraft():(await Read(db,customer,ct)).Draft;
+                var proposed=creating?request.Draft:CustomerMutations.Apply(request,original);
+                if(proposed is null) return new(CustomerOutcome.InvalidInput,context);
+                if(!Can("StatusChange") && proposed.Status!=original.Status) return new(CustomerOutcome.Forbidden);
+                if(!Can("CreditEdit") && (proposed.Credit!=original.Credit || proposed.Opening!=original.Opening))
+                    return new(CustomerOutcome.Forbidden);
+                if(!Can("BankView") || !Can("BankEdit")) proposed=proposed with {Bank=original.Bank};
+                if(!Can("InternalNotes")) proposed=proposed with {InternalRemarks=original.InternalRemarks};
                 var validated=CustomerRules.Validate(proposed with {Code=creating ? "" : customer.Code},assignCodeOnSave:creating);
                 if(validated.Errors.Count>0) return new(CustomerOutcome.InvalidInput,context,Errors:validated.Errors);
                 var draft=validated.Value;
@@ -105,7 +122,7 @@ public sealed class CustomerStore(DevelopmentDatabase database) : ICustomerStore
                 Action="Customer"+request.Operation,RecordType="Customer",RecordId=customer.Id.ToString(),
                 ChangesJson=JsonSerializer.Serialize(new {Operation=request.Operation.ToString(),EntryId=request.EntryId})});
             await db.SaveChangesAsync(ct);
-            var detail=await Read(db,customer,ct);
+            var detail=Redact(await Read(db,customer,ct),Can("BankView"),Can("InternalNotes"));
             ct.ThrowIfCancellationRequested();await transaction.CommitAsync(ct);
             return new(CustomerOutcome.Success,context,detail);
         }
@@ -116,6 +133,11 @@ public sealed class CustomerStore(DevelopmentDatabase database) : ICustomerStore
         catch(Exception e) when(e is SqliteException or DbUpdateException or IOException or InvalidOperationException or OverflowException)
         {return new(CustomerOutcome.Unavailable);}
     }
+
+    private static CustomerDetail Redact(CustomerDetail detail,bool bank,bool internalNotes) => detail with
+    {
+        Draft=detail.Draft with { Bank=bank?detail.Draft.Bank:null, InternalRemarks=internalNotes?detail.Draft.InternalRemarks:null }
+    };
 
     private static async Task<string?> NextCustomerCodeAsync(BillingDbContext db,Guid companyId,string companyCode,CancellationToken ct)
     {
@@ -239,7 +261,7 @@ public sealed class CustomerStore(DevelopmentDatabase database) : ICustomerStore
     private static CustomerAddressDraft? ResolveAddress(CustomerDraft d,Guid? id,bool billing)=>
         d.Addresses.SingleOrDefault(a=>a.IsActive && (billing?a.AddressType is "Billing" or "Both":a.AddressType is "Shipping" or "Both") &&
             (id is not null?a.Id==id:billing?a.IsDefaultBilling:a.IsDefaultShipping));
-    private static async Task<CustomerResult> Snapshot(BillingDbContext db,Customer customer,CustomerCompanyContext context,CustomerSnapshotRequest request,CancellationToken ct)
+    internal static async Task<CustomerResult> Snapshot(BillingDbContext db,Customer customer,CustomerCompanyContext context,CustomerSnapshotRequest request,CancellationToken ct)
     {
         var detail=await Read(db,customer,ct);var d=detail.Draft;
         var eligibility=Eligibility(d,request);
@@ -283,7 +305,7 @@ public sealed class CustomerStore(DevelopmentDatabase database) : ICustomerStore
         foreach(var c in rows)
         {
             var address=await db.Set<CustomerAddress>().AsNoTracking().SingleOrDefaultAsync(x=>x.CompanyId==context.CompanyId&&x.CustomerId==c.Id&&x.IsDefaultBilling&&x.IsActive,ct);
-            output.Add(new(c.Id,c.Version,c.Code,c.LegalName,c.TradeName,c.Gstin,c.Mobile,address?.City,address?.StateName,c.CreditDays,c.CreditLimit,c.Status,c.CreditHold));
+            output.Add(new(c.Id,c.Version,c.Code,c.LegalName,c.TradeName,c.Gstin,c.Mobile,address?.City,address?.StateName,c.CreditDays,c.CreditLimit,c.Status,c.CreditHold,c.Currency));
             if(request.Operation==CustomerOperation.InvoiceSelection)
             {
                 var detail=await Read(db,c,ct);var d=detail.Draft;
