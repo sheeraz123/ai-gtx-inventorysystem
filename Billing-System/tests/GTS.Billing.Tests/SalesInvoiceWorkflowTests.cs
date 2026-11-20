@@ -126,7 +126,22 @@ public sealed class SalesInvoiceWorkflowTests
             Assert.Equal(editedPreview.Snapshot.Amounts,edited.Snapshot!.Amounts);
             Assert.Equal(CompanyOutcome.Conflict,(await sales.ExecuteAsync(new(SalesAction.Save,id,key,loaded.Row.Version,edits))).Outcome);
             var latest=await sales.ExecuteAsync(new(SalesAction.View,id,key));
-            var review=await sales.ExecuteAsync(new(SalesAction.Preview,id,key,latest.Row!.Version,latest.Draft));
+            Assert.Equal(latest.Row!.Version,edited.Row!.Version);
+            var incomplete=await sales.ExecuteAsync(new(SalesAction.Save,id,key,latest.Row.Version,
+                edits with {PlaceOfSupply="",Jurisdiction=GstJurisdiction.Unresolved,DomesticConfirmed=false}));
+            Assert.Equal(CompanyOutcome.Success,incomplete.Outcome);
+            var blocked=await sales.ExecuteAsync(new(SalesAction.PrepareFinalization,id,key,incomplete.Row!.Version));
+            Assert.Equal(CompanyOutcome.InvalidInput,blocked.Outcome);
+            Assert.Contains(blocked.FieldErrors!,error=>error.Field==nameof(SalesDraft.PlaceOfSupply));
+            Assert.False((await sales.ExecuteAsync(new(SalesAction.View,id,key))).Row!.Finalized);
+            var layoutFields=SalesFormConfiguration.Fields.Where(field=>field.Key is "TaxDetails" or "ProductCode" or "Sku" or "UnitId");
+            var layoutSettings=await auth.RunAuthenticatedAsync(actor=>new SettingsStore(database,TimeProvider.System)
+                .ExecuteAsync(new(SettingsAction.Save,SettingScope.Company,id,SalesFormConfiguration.Section,
+                    layoutFields.Select(field=>new SettingEdit(field.Setting.Key,
+                        JsonSerializer.Serialize(field.Baseline with {Visible=false}),null)).ToArray()),actor,CancellationToken.None));
+            Assert.Equal(CompanyOutcome.Success,layoutSettings.Outcome);
+            latest=await sales.ExecuteAsync(new(SalesAction.Save,id,key,incomplete.Row.Version,edits));
+            var review=await sales.ExecuteAsync(new(SalesAction.PrepareFinalization,id,key,latest.Row!.Version));
             var finalize=new SalesRequest(SalesAction.Finalize,id,key,latest.Row.Version,Confirmation:review.Confirmation);
             var finalized=await sales.ExecuteAsync(finalize);
             Assert.True(finalized.Outcome==CompanyOutcome.Success,finalized.Message);

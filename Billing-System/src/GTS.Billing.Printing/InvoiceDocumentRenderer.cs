@@ -12,10 +12,10 @@ namespace GTS.Billing.Printing;
 
 public static class InvoiceDocumentRenderer
 {
-    public static FixedDocument Render(InvoicePrintModel invoice, string? copyLabel = null) =>
+    public static FixedDocument Render(InvoicePrintModel invoice, string? copyLabel = null, bool preview = false) =>
         invoice.Template.Code == InvoiceTemplates.GraftexClassic
-            ? new ClassicInvoiceLayout(invoice, copyLabel).Build()
-            : new Layout(invoice, copyLabel).Build();
+            ? new ClassicInvoiceLayout(invoice, copyLabel, preview).Build()
+            : new Layout(invoice, copyLabel, preview).Build();
 
     public static double MarginDip(InvoicePrintModel invoice, int? configured) =>
         (configured ?? (invoice.Template.Code == InvoiceTemplates.GraftexClassic ? 7 : 12)) * 96 / 25.4;
@@ -40,11 +40,15 @@ public static class InvoiceDocumentRenderer
         private double used;
         private Func<FrameworkElement>? repeatingHeader;
 
-        internal Layout(InvoicePrintModel invoice, string? copyLabel)
+        private readonly bool preview;
+        private bool Output(string key)=>options?.SalesForm?.ShowOutput(key,preview)??true;
+
+        internal Layout(InvoicePrintModel invoice, string? copyLabel, bool preview)
         {
             this.invoice=invoice;
             this.copyLabel=copyLabel;
             options=invoice.Seller.Presentation.Options;
+            this.preview=preview;
             print=options?.Printing;
             width=Dip(invoice.Template.WidthMm);height=Dip(invoice.Template.HeightMm);
             left=Dip(print?.LeftMm??12);top=Dip(print?.TopMm??12);
@@ -77,7 +81,7 @@ public static class InvoiceDocumentRenderer
                 Value(Label("PlaceOfSupply","Place of supply"),invoice.Header.PlaceOfSupply),copyLabel??print?.CopyLabel));
             if(print?.PrintTimestamp==true) AddText("Finalized " + invoice.Customer.CapturedUtc.ToString("u",CultureInfo.InvariantCulture));
             AddText(Join(Value("Customer PO",invoice.Header.PurchaseOrder),invoice.Header.PurchaseOrderDate is DateOnly po?Date(po):null,
-                Value("Reference",invoice.Header.Reference)));
+                Value("Reference",Output("Reference")?invoice.Header.Reference:null)));
             if(print?.HeaderSpacingMm is >0) Add(new Border {Height=Dip(print.HeaderSpacingMm)});
             if(Modern)
             {
@@ -113,13 +117,13 @@ public static class InvoiceDocumentRenderer
             foreach(var line in invoice.Lines)
             {
                 var product=line.Product;
-                var identity=Join($"{line.Number}. {product.Name}",product.Code,product.Brand);
+                var identity=Join($"{line.Number}. {product.Name}",Output("ProductCode")?product.Code:null,Output("Brand")?product.Brand:null);
                 var rate=Number(line.Input.Price,options?.RateDecimals??2);
                 var qty=Number(line.Input.Quantity,options?.QuantityDecimals??2)+" "+product.Unit;
                 var value=line.Amounts;
                 string[] cells=Wholesale?
-                    [product.Code,product.Sku??"",product.Name,product.Brand??"",line.Tax.Rate.Code,
-                        product.Mrp is decimal mrp?Amount(mrp):"",qty,rate,Amount(value.Discount),Amount(value.Taxable),Amount(value.Tax),Amount(value.Total)]:
+                    [Output("ProductCode")?product.Code:"",Output("Sku")?product.Sku??"":"",product.Name,Output("Brand")?product.Brand??"":"",line.Tax.Rate.Code,
+                        Output("Mrp") && product.Mrp is decimal mrp?Amount(mrp):"",qty,rate,Amount(value.Discount),Amount(value.Taxable),Amount(value.Tax),Amount(value.Total)]:
                     Retail?[product.Name,line.Tax.Rate.Code,qty,rate,Amount(value.Discount),Amount(value.Taxable),Amount(value.Tax),Amount(value.Total)]:discounts?
                     new[]{identity,line.Tax.Rate.Code,qty,rate,Amount(value.Discount),Amount(value.Taxable),Amount(value.Total)}:
                     new[]{identity,line.Tax.Rate.Code,qty,rate,Amount(value.Taxable),Amount(value.Total)};
@@ -209,7 +213,7 @@ public static class InvoiceDocumentRenderer
             totalsBlock.Children.Add(Cells([Label("Total","Grand Total"),
                 Join(currency=="No symbol"?null:currency??"INR",Amount(totals.Total))],[.58,.42],true));
             Add(totalsBlock);
-            AddText(Value(Label("PaymentTerms","Payment terms"),invoice.Header.Terms));
+            if(Output("Terms")) AddText(Value(Label("PaymentTerms","Payment terms"),invoice.Header.Terms));
             if(invoice.Header.DueDate is DateOnly due) AddText("Due date — "+Date(due));
             if(invoice.Seller.Presentation.Bank is { } bank)
             {
@@ -223,7 +227,7 @@ public static class InvoiceDocumentRenderer
                 AddText(Join(Value("Transport",shipment.Carrier),Value("Vehicle",shipment.Vehicle),Value("G.R.",shipment.GoodsReceipt),
                     Value("Weight",shipment.Weight),Value("Order through",shipment.OrderThrough),Value("Prepared by",shipment.PreparedBy),
                     Value("Private mark",shipment.PrivateMark),Value("Document",shipment.Document)));
-            AddText(invoice.Header.Notes);
+            if(Output("Notes")) AddText(invoice.Header.Notes);
             AddText(options?.Remarks);
             if(Show("Signatory")) AddText(Value(Label("AuthorizedSignatory","Authorized signatory"),invoice.Seller.Presentation.Signatory));
             if(print?.FooterSpacingMm is >0) Add(new Border {Height=Dip(print.FooterSpacingMm)});

@@ -3,7 +3,7 @@ using GTS.Billing.Domain;
 namespace GTS.Billing.Application;
 
 public enum CustomerOutcome {Success,InvalidInput,DuplicateWarning,SessionRequired,Forbidden,NoCompany,CompanyChanged,NotFound,Conflict,Ineligible,Unavailable}
-public enum CustomerOperation {Context,List,Get,Create,Update,Status,AddAddress,UpdateAddress,DefaultBilling,DefaultShipping,AddContact,UpdateContact,PrimaryContact,Credit,Opening,InvoiceSelection,Snapshot}
+public enum CustomerOperation {Context,List,Get,Create,Update,Status,AddAddress,UpdateAddress,DefaultBilling,DefaultShipping,AddContact,UpdateContact,PrimaryContact,Credit,Opening,InvoiceSelection,Snapshot,SaveInvoiceAddress}
 public sealed record CustomerCompanyContext(Guid CompanyId,string Code,string Name);
 public sealed record CustomerFilter(string? Search=null,string? Status=null,string? RegistrationType=null,int Page=1,int PageSize=50);
 public sealed record CustomerSnapshotRequest(Guid? BillingAddressId=null,Guid? ShippingAddressId=null,Guid? ContactId=null,bool IncludePan=false,bool IncludeContactDetails=false);
@@ -37,7 +37,7 @@ public interface ICustomerFinancialSource
 }
 public sealed record CustomerResult(CustomerOutcome Outcome,CustomerCompanyContext? Context=null,CustomerDetail? Detail=null,
     CustomerPage? Page=null,IReadOnlyDictionary<string,string>? Errors=null,IReadOnlyList<CustomerDuplicateWarning>? Warnings=null,
-    IReadOnlyList<CustomerSelection>? Selection=null,CustomerInvoiceSnapshot? Snapshot=null);
+    IReadOnlyList<CustomerSelection>? Selection=null,CustomerInvoiceSnapshot? Snapshot=null,Guid? AddressId=null);
 public interface ICustomerStore
 {
     Task<CustomerResult> ExecuteAsync(CustomerRequest request,AuthenticatedIdentity actor,CancellationToken ct);

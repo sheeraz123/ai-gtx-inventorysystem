@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 
 namespace GTS.Billing.Application;
 
-public enum SettingsAction { Runtime, List, Save, Security }
+public enum SettingsAction { Runtime, List, Save, Security, SalesFormHistory }
 public sealed record SettingEdit(string Key,string? Text,long? Version);
 public sealed record SettingsRequest(SettingsAction Action,SettingScope Scope=SettingScope.Application,
     Guid? ExpectedCompanyId=null,string? Section=null,IReadOnlyList<SettingEdit>? Changes=null);
@@ -23,7 +23,12 @@ public sealed record SettingEntry(SettingDefinition Definition,SettingScope Scop
     }
 }
 public sealed record SettingsResult(CompanyOutcome Outcome,IReadOnlyList<SettingEntry>? Entries=null,ResolvedSettings? Runtime=null,
-    string? Message=null,string? InvalidKey=null,Guid? CurrentCompanyId=null);
+    string? Message=null,string? InvalidKey=null,Guid? CurrentCompanyId=null,
+    IReadOnlyList<SalesFormVersion>? SalesFormVersions=null);
+public sealed record SalesFormVersion(Guid Id,DateTime AtUtc,Guid? ActorId,string Json)
+{
+    public string Label=>$"{AtUtc:u} · {Id.ToString("N")[..8]}";
+}
 
 public interface ISettingsStore
 {
@@ -81,7 +86,7 @@ public sealed record InvoicePresentationOptions(string CompanyName,string Taglin
     ImmutableDictionary<string,string> Captions,ImmutableDictionary<string,bool> OptionalSections,
     string DateFormat,int QuantityDecimals,int RateDecimals,int AmountDecimals,int TaxDecimals,string CurrencySymbol,
     bool GroupThousands,string TaxSummaryStyle,string Remarks,string FooterNotes,InvoicePrintOptions Printing,
-    string? TemplateCode=null)
+    string? TemplateCode=null,SalesFormConfiguration? SalesForm=null)
 {
     // Document-specific validation supplies required fields; a preference cannot remove one.
     public bool ShowSection(string key,bool required) => required || OptionalSections.GetValueOrDefault(key,true);

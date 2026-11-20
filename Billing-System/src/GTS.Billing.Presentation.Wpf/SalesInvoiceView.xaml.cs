@@ -11,7 +11,7 @@ public partial class SalesInvoiceView : UserControl
     public SalesInvoiceView()=>InitializeComponent();
 }
 
-public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service):ObservableObject
+public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,CustomerService customers):ObservableObject
 {
     private readonly MasterSearch search=new();
     private AccessSnapshot access=AccessSnapshot.Denied;
@@ -36,6 +36,12 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service):O
     [ObservableProperty] private DateTime? _from;
     [ObservableProperty] private DateTime? _to;
     [ObservableProperty] private bool _busy;
+    [ObservableProperty] private NoticeKind _finalizationNoticeKind;
+    public bool CanDismissFinalizationNotice=>FinalizationNoticeKind is NoticeKind.Error or NoticeKind.Success;
+    partial void OnFinalizationNoticeKindChanged(NoticeKind value)=>OnPropertyChanged(nameof(CanDismissFinalizationNotice));
+    [RelayCommand]
+    private void DismissFinalizationNotice()
+    { Message="";FinalizationNoticeKind=NoticeKind.Automatic; }
 
     private bool Has(string action)=>access.Allows("SalesInvoice."+action);
     private bool CanBrowse()=>loaded && !Busy && Has("View") && Has("ViewFinancials");
@@ -54,7 +60,7 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service):O
     }
     public void Clear()
     {
-        generation++;loaded=false;search.Cancel();company=null;options=null;Rows=[];Selected=null;Message="";
+        generation++;loaded=false;search.Cancel();company=null;options=null;Rows=[];Selected=null;DismissFinalizationNotice();
         Notify();
     }
     public async Task OpenAsync()
@@ -114,7 +120,8 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service):O
         try
         {
             var response=await Send(filter,ct);
-            if(version!=generation || ct.IsCancellationRequested || filter!=Filter() || !Accept(response)) return;
+            if(version!=generation || ct.IsCancellationRequested || filter!=Filter()) return;
+            if(response.Outcome!=CompanyOutcome.Success && !Accept(response)) return;
             var selected=Selected?.Id;Rows=response.Rows!;Selected=Rows.FirstOrDefault(x=>x.Id==selected);
         }
         catch(OperationCanceledException) when(ct.IsCancellationRequested) { }
@@ -169,6 +176,7 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service):O
         if(company is not Guid current || options is null) return;
         var version=generation;
         var savedDraft=false;
+        SalesRow? finalize=null;
         Busy=true;
         try
         {
@@ -203,7 +211,6 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service):O
             var dialog=new MeasureEditorDialog(SettingsDisplay.Text("Sales.Title","Sales Invoice"),false);
             if(row is null) dialog.Title=SettingsDisplay.Text("Sales.Title","Sales Invoice")+" — New draft";
             var createId=row is null?Guid.NewGuid():(Guid?)null;
-            SalesRow? finalize=null;
             SalesInvoiceEditor.Configure(dialog,data,options,options.CompanyName??"Selected company",async (action,draft,completions,ct)=>
             {
                 if(version!=generation) return new(CompanyOutcome.Conflict,Message:"Company or session changed. Close this editor.");
@@ -212,17 +219,34 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service):O
                 if(result.Outcome==CompanyOutcome.SessionRequired) Accept(result);
                 if(action==SalesAction.Save && result.Outcome==CompanyOutcome.Success) savedDraft=true;
                 return result;
-            },Has("Finalize")?saved=>finalize=saved:null);
+            },Has("Finalize")?saved=>finalize=saved:null,
+            async (customerId,ct)=>
+            {
+                if(version!=generation) return new(CompanyOutcome.Conflict,Message:"The company or session changed.");
+                var result=await Send(new(SalesAction.CustomerAddresses,current,Customer:customerId),ct);
+                if(result.Outcome==CompanyOutcome.SessionRequired) Accept(result);
+                return result;
+            },
+            async (customerId,customerVersion,address,sharedAddress,ct)=>
+            {
+                if(version!=generation) return new(CustomerOutcome.CompanyChanged);
+                var result=await Task.Run(()=>customers.ExecuteAsync(new(CustomerOperation.SaveInvoiceAddress,current,
+                    customerId,customerVersion,Address:address,EntryId:sharedAddress),ct),ct);
+                if(result.Outcome==CustomerOutcome.SessionRequired) Accept(new(CompanyOutcome.SessionRequired));
+                return result;
+            },
+            access.Allows("Customer.View",current) && access.Allows("Customer.Edit",current));
             dialog.ShowDialog();
             if(finalize is not null && version==generation) await FinalizeRecordAsync(current,finalize,version);
         }
         finally {Busy=false;}
         if(!readOnly && version==generation)
         {
-            var completedMessage=Message.StartsWith("Finalized invoice ",StringComparison.Ordinal)?Message:null;
+            var completedMessage=finalize is not null?Message:null;
             if(savedDraft) await RefreshAsync();
             else await LoadList(CancellationToken.None);
-            if(savedDraft && string.IsNullOrEmpty(Message)) Message=completedMessage??"Sales invoice draft saved.";
+            if(!string.IsNullOrEmpty(completedMessage)) Message=completedMessage;
+            else if(savedDraft && string.IsNullOrEmpty(Message)) Message="Sales invoice draft saved.";
         }
     }
 
@@ -239,22 +263,55 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service):O
 
     private async Task FinalizeRecordAsync(Guid current,SalesRow row,int version)
     {
-        {
-            var result=await Send(new(SalesAction.View,current,row.Id));
-            if(version!=generation || !Accept(result) || result.Row is not {Finalized:false} persisted) return;
-            var preview=await Send(new(SalesAction.Preview,current,row.Id,persisted.Version,result.Draft));
-            if(version!=generation || !Accept(preview) || preview.Snapshot is not {} snapshot || preview.Confirmation is null) return;
+            FinalizationNoticeKind=NoticeKind.Automatic;
+            Message="Checking invoice for finalization…";
+            var preview=await Send(new(SalesAction.PrepareFinalization,current,row.Id,row.Version));
+            if(version!=generation) return;
+            if(preview.Outcome!=CompanyOutcome.Success || preview.Snapshot is not {} snapshot || preview.Confirmation is null)
+            { ShowFinalizationFailure(preview);return; }
             var year=Years.FirstOrDefault(y=>y.Id==snapshot.Draft.YearId)?.Label;
             var seriesName=SeriesChoices.FirstOrDefault(x=>x.Id==snapshot.Draft.SeriesId)?.Label;
             var message=$"{snapshot.Seller.Name}{Environment.NewLine}Customer: {snapshot.Customer.LegalName}{Environment.NewLine}"+
                 $"Date: {snapshot.Draft.Date:d} · Year: {year} · Series: {seriesName}{Environment.NewLine}"+
                 $"Lines: {snapshot.Lines.Count} · Taxable: {snapshot.Amounts.Taxable:N2} · GST: {snapshot.Amounts.Tax:N2}{Environment.NewLine}"+
-                $"Grand total: INR {snapshot.Amounts.Total:N2}{Environment.NewLine}{Environment.NewLine}Finalize and issue the permanent invoice number?";
-            if(MessageBox.Show(message,"Finalize draft",MessageBoxButton.YesNo,MessageBoxImage.Warning,MessageBoxResult.No)!=MessageBoxResult.Yes) return;
-            var finalized=await Send(new(SalesAction.Finalize,current,row.Id,persisted.Version,Confirmation:preview.Confirmation));
-            if(!Accept(finalized)) return;
-            Message="Finalized invoice "+finalized.Row?.Number;
+                $"Grand total: INR {snapshot.Amounts.Total:N2}{Environment.NewLine}{Environment.NewLine}"+
+                "Finalization issues a permanent invoice number and locks the invoice. Do you want to continue?";
+            Message="";
+            if(MessageBox.Show(message,"Finalize Sales Invoice?",MessageBoxButton.YesNo,MessageBoxImage.Warning,MessageBoxResult.No)!=MessageBoxResult.Yes) return;
+            Message="Finalizing Invoice…";
+            var finalized=await Send(new(SalesAction.Finalize,current,row.Id,row.Version,Confirmation:preview.Confirmation));
+            if(version!=generation) return;
+            if(finalized.Outcome!=CompanyOutcome.Success || finalized.Row is not {Finalized:true} issued)
+            { ShowFinalizationFailure(finalized);return; }
+            Message=$"Sales Invoice {issued.Number} has been finalized successfully.";
+            FinalizationNoticeKind=NoticeKind.Success;
+            Rows=Rows.Select(item=>item.Id==issued.Id?item with {Number=issued.Number,Finalized=true,
+                Taxable=issued.Taxable,Tax=issued.Tax,Total=issued.Total,Version=issued.Version}:item).ToArray();
+            Selected=Rows.FirstOrDefault(item=>item.Id==issued.Id);
+            _=ExpireSuccessAsync(Message);
+    }
+
+    private void ShowFinalizationFailure(SalesResult result)
+    {
+        var reason=Error(result);
+        if(string.IsNullOrWhiteSpace(reason)) reason="The invoice did not return a finalization result. Refresh the draft and try again.";
+        var details=string.Join(Environment.NewLine,(result.FieldErrors??[])
+            .Select(error=>error.Line is int line?$"Line {line}: {error.Message}":error.Message)
+            .Where(error=>error!=reason).Distinct());
+        var summary=string.IsNullOrEmpty(details)?reason:reason+Environment.NewLine+details;
+        if(result.Outcome==CompanyOutcome.SessionRequired)
+        {
+            MessageBox.Show(summary,"Invoice finalization stopped",MessageBoxButton.OK,MessageBoxImage.Error);
+            Accept(result);
+            return;
         }
+        Message=summary;
+        FinalizationNoticeKind=NoticeKind.Error;
+    }
+    private async Task ExpireSuccessAsync(string delivered)
+    {
+        await Task.Delay(TimeSpan.FromSeconds(6));
+        if(FinalizationNoticeKind==NoticeKind.Success && Message==delivered) DismissFinalizationNotice();
     }
     private Task<SalesResult> Send(SalesRequest request,CancellationToken ct=default)=>Task.Run(()=>service.ExecuteAsync(request,ct),ct);
     private bool Accept(SalesResult result)

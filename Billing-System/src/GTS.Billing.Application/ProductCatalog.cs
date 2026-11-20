@@ -25,7 +25,10 @@ public sealed record ProductInvoiceSnapshot(Guid CompanyId, Guid ProductId, long
     string? Description, string Kind, string? Sku, string? Barcode, string? Hsn, string Unit, int QuantityPrecision,
     decimal Factor, decimal? DefaultRate, string Currency, bool TaxInclusive, decimal? ProvisionalGstRate, bool TaxExempt, string? TaxNotes,
     Guid? BrandId = null, string? Brand = null, Guid? UnitId = null, string? UnitSymbol = null, string? Uqc = null,
-    string? Classification = null, TaxSnapshot? Tax = null, string? UnitName = null, decimal? Mrp = null);
+    string? Classification = null, TaxSnapshot? Tax = null, string? UnitName = null, decimal? Mrp = null,
+    CapturedProductVariant? Variant = null);
+public sealed record CapturedProductVariant(Guid Id,string Code,string? Sku,string? Barcode,IReadOnlyList<VariantAttributeSnapshot> Attributes);
+public sealed record VariantAttributeSnapshot(string Axis,string Code,string Name);
 public sealed record ProductVariantDescription(string? Variant, string? Size, string? SizeSystem, string? Color,
     string? Style = null, string? Model = null, string? Material = null, string? Segment = null);
 public sealed record InvoiceProductLineSnapshot(ProductInvoiceSnapshot Product, decimal Quantity, decimal UnitPrice,

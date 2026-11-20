@@ -63,7 +63,7 @@ public partial class InvoicePreviewWindow : Window
     private void Render(InvoiceTemplate template)
     {
         var selection=model with {Template=template};
-        var next=InvoiceDocumentRenderer.Render(selection,(CopyChoice.SelectedItem as CopyOption)?.Label).DocumentPaginator;
+        var next=InvoiceDocumentRenderer.Render(selection,(CopyChoice.SelectedItem as CopyOption)?.Label,preview:true).DocumentPaginator;
         next.ComputePageCount();
         renderedModel=selection;
         paginator=next;
@@ -157,7 +157,8 @@ public partial class InvoicePreviewWindow : Window
                 return;
             }
             dialog.PrintTicket=validated;
-            dialog.PrintDocument(paginator,"GTS Invoice "+model.Number);
+            var printDocument=InvoiceDocumentRenderer.Render(renderedModel,(CopyChoice.SelectedItem as CopyOption)?.Label);
+            dialog.PrintDocument(printDocument.DocumentPaginator,"GTS Invoice "+model.Number);
             Notice.Text="The invoice was submitted to the Windows print queue.";
         }
         catch(Exception error) when(error is PrintSystemException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or OperationCanceledException)

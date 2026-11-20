@@ -55,6 +55,7 @@ public sealed partial class SettingsViewModel(ApplicationSettingsService service
     public bool CompanyDetailsAvailable=>CompanyPresentation is not null;
     public bool HasCompanyHelp=>CompanyHelp.Length>0;
     public bool HasUnsavedChanges=>Editing && Value!=draftBaseline || CompanyPresentation?.HasPendingChanges==true;
+    public bool IsSalesLayoutSection=>Section?.Name==SalesFormConfiguration.Section;
     public bool CanList=>IsOpen && !Busy && !DetailOpen && Scope is not null && !ShowSecurity;
     public bool CanView=>CanList && Selected is not null;
     public bool CanEdit=>DetailOpen && !Editing && opened?.CanEdit==true && !Busy;
@@ -189,7 +190,7 @@ public sealed partial class SettingsViewModel(ApplicationSettingsService service
             options.Insert(1,new(SettingsRegistry.LabelSection));
             if(access.CurrentCompanyId is not null)
                 options.InsertRange(3,new[]{SettingsRegistry.Branding,SettingsRegistry.Bank,SettingsRegistry.Invoice,SettingsRegistry.Sales,
-                    SettingsRegistry.Product,SettingsRegistry.Gst,SettingsRegistry.Printing}.Select(x=>new SettingsSection(x)));
+                    SettingsRegistry.Product,SettingsRegistry.Gst,SettingsRegistry.Printing,SalesFormConfiguration.Section}.Select(x=>new SettingsSection(x)));
         }
         if(access.Allows("Settings.SecurityView")) options.Add(new(SettingsRegistry.Security));
         if(access.IsSuperAdmin) options.Add(new(LoginPage.Section));
@@ -292,7 +293,7 @@ public sealed partial class SettingsViewModel(ApplicationSettingsService service
 
     private void Notify()
     {
-        foreach(var property in new[]{nameof(CanList),nameof(CanView),nameof(CanEdit),nameof(CanSave),nameof(CanRestore),
+        foreach(var property in new[]{nameof(IsSalesLayoutSection),nameof(CanList),nameof(CanView),nameof(CanEdit),nameof(CanSave),nameof(CanRestore),
             nameof(CanRestoreSection),nameof(IsTextSection),nameof(CanUseChoice),nameof(CanUseText),nameof(CanPreviewInvoice),
             nameof(OpenedPrinter),nameof(DetailTitle),nameof(DetailKey),nameof(DetailDescription),nameof(DetailScope),
             nameof(DetailDefault),nameof(RestartNote),nameof(LastUpdated),nameof(Choices),nameof(OpenedInvoiceTemplate),
@@ -458,6 +459,28 @@ public sealed partial class SettingsViewModel(ApplicationSettingsService service
 
     [RelayCommand]
     private Task GoToCompanyAsync()=>OpenCompany?.Invoke() ?? Task.CompletedTask;
+
+    [RelayCommand]
+    private async Task OpenSalesLayoutAsync()
+    {
+        var changed=false;
+        await Run(async ct=>
+        {
+            if(!IsSalesLayoutSection || access.CurrentCompanyId is not Guid company ||
+                System.Windows.Application.Current?.MainWindow is not { } owner) return;
+            var result=await Send(new(SettingsAction.List,SettingScope.Company,company,SalesFormConfiguration.Section),ct);
+            if(!Accept(result) || result.Entries is null) return;
+            var dialog=new SalesFormConfigurationDialog(owner,CompanyLabel,result.Entries,
+                edits=>Send(new(SettingsAction.Save,SettingScope.Company,company,SalesFormConfiguration.Section,edits),ct),
+                ()=>Send(new(SettingsAction.SalesFormHistory,SettingScope.Company,company),ct));
+            changed=dialog.ShowDialog()==true;
+        });
+        if(changed)
+        {
+            Changed?.Invoke(this,EventArgs.Empty);
+            await LoadAsync();
+        }
+    }
 
     private async Task Run(Func<CancellationToken,Task> action,CancellationToken caller=default)
     {

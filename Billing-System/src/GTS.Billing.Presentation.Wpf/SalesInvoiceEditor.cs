@@ -15,15 +15,21 @@ internal static class SalesInvoiceEditor
 
     internal static void Configure(MeasureEditorDialog dialog,SalesResult data,SalesOptions options,string companyName,
         Func<SalesAction,SalesDraft,IReadOnlyList<SalesProductCompletion>,CancellationToken,Task<SalesResult>> send,
-        Action<SalesRow>? finalize)
+        Action<SalesRow>? finalize,Func<Guid,CancellationToken,Task<SalesResult>> loadAddresses,
+        Func<Guid,long,CustomerAddressDraft,Guid?,CancellationToken,Task<CustomerResult>> saveAddress,bool canEditAddress)
     {
         var draft=data.Draft!;
+        var form=options.Form??SalesFormConfiguration.Empty;
+        void Apply(string key,Control control)=>dialog.ConfigureField(control,form.Field(key),form.Rules.ContainsKey(key));
+        void Card(string key,FrameworkElement body)=>dialog.AddConfiguredCard(form.Field(key),body);
+        var newInvoice=data.Row is null;
+        string? Initial(string key,string? original)=>newInvoice && form.Field(key).Default.Length>0?form.Field(key).Default:original;
         dialog.Width=Math.Min(1450,SystemParameters.WorkArea.Width);
         dialog.Height=Math.Min(880,SystemParameters.WorkArea.Height);
         var header=new WrapPanel();
-        dialog.AddCard("Invoice details",header);
-        dialog.Text("Company",companyName,150,true,panel:header).Width=210;
-        dialog.Text("Invoice type / status","Tax Invoice — Draft",60,true,panel:header).Width=150;
+        Card("InvoiceDetails",header);
+        var companyInput=dialog.Text("Company",companyName,150,true,panel:header); companyInput.Width=210; Apply("Company",companyInput);
+        var statusInput=dialog.Text("Invoice type / status","Tax Invoice — Draft",60,true,panel:header); statusInput.Width=150; Apply("InvoiceNumber",statusInput);
         var date=dialog.Date(Label("Date","Invoice date")+" *",draft.Date,panel:header);
         var isNew=data.Row is null;
         bool MatchesDate(SalesChoice value)=>Date(date) is { } day && SalesOptions.IncludesDate(value,day);
@@ -44,6 +50,8 @@ internal static class SalesInvoiceEditor
             dialog.SetFieldWarning(year,year.SelectedItem is SalesChoice choice && MatchesDate(choice)?null:
                 availableYears.Any(MatchesDate)?"Select an open year that includes the invoice date.":"No open financial year includes the invoice date.");
         }
+        Apply("Date",date);Apply("YearId",year);Apply("RegistrationId",registration);Apply("SeriesId",series);
+        MeasureEditorDialog.OrderConfigured(header);
         ReloadSeries(draft.SeriesId);
         year.SelectionChanged+=(_,_)=>ReloadSeries();
         registration.SelectionChanged+=(_,_)=>ReloadSeries();
@@ -52,32 +60,54 @@ internal static class SalesInvoiceEditor
             if(series.SelectedItem is not null) dialog.SetFieldWarning(series,null);
         };
         date.SelectedDateChanged+=(_,_)=>ReloadSeries();
-        var parties=new Grid();
-        parties.ColumnDefinitions.Add(new()); parties.ColumnDefinitions.Add(new());
-        var billed=new StackPanel();
-        var shipped=new StackPanel();
-        Grid.SetColumn(shipped,1);
-        parties.Children.Add(billed); parties.Children.Add(shipped);
-        dialog.AddCard("Customer and addresses",parties);
-        var customer=Choice("Customer",options.Customers,draft.CustomerId,billed);
-        var bill=Choice("Bill to",options.Billing.Where(x=>x.Scope==draft.CustomerId),draft.BillingAddressId,billed);
-        var ship=Choice("Ship to",options.Shipping.Where(x=>x.Scope==draft.CustomerId),draft.ShippingAddressId,shipped);
-        var billingDetails=new TextBlock {TextWrapping=TextWrapping.Wrap};
-        var shippingDetails=new TextBlock {TextWrapping=TextWrapping.Wrap};
-        billed.Children.Add(billingDetails); shipped.Children.Add(shippingDetails);
-        customer.SelectionChanged+=(_,_) =>
-        {
-            SearchableComboBox.SetSource(bill,options.Billing.Where(x=>x.Scope==Id(customer)).ToArray());
-            SearchableComboBox.SetSource(ship,options.Shipping.Where(x=>x.Scope==Id(customer)).ToArray());
-        };
+        var customerPanel=new WrapPanel();
+        Card("CustomerDetails",customerPanel);
+        var customer=Choice("Customer *",options.Customers,draft.CustomerId,customerPanel);
+        Apply("CustomerId",customer);
+        var po=dialog.Text(form.Field("PurchaseOrder").Label,Initial("PurchaseOrder",draft.PurchaseOrder),100,panel:customerPanel);
+        Apply("PurchaseOrder",po);
+        MeasureEditorDialog.OrderConfigured(customerPanel);
+        var addresses=new SalesInvoiceAddressCards(dialog,customer,draft.BillingAddressId,draft.ShippingAddressId,
+            loadAddresses,saveAddress,canEditAddress,form);
         var taxFields=new WrapPanel();
-        dialog.AddCard("GST treatment",taxFields);
+        var taxSection=form.Field("TaxDetails");
+        var reviewFields=new WrapPanel();
+        dialog.AddConfiguredCard(taxSection,taxFields);
+        WrapPanel TaxPanel(string key)=>taxSection.Visible && form.Field(key).Visible?taxFields:reviewFields;
         var places=CompanyRules.States.Select(x=>new Place(x.Key,x.Key+" — "+x.Value)).OrderBy(x=>x.Label).ToArray();
         var place=dialog.Choice("Reviewed place of supply",places,places.FirstOrDefault(x=>x.Code==draft.PlaceOfSupply),
-            nameof(Place.Label),panel:taxFields,searchable:true);
+            nameof(Place.Label),panel:TaxPanel("PlaceOfSupply"),searchable:true);
         var jurisdiction=dialog.Choice("GST jurisdiction",new[]{GstJurisdiction.Unresolved,GstJurisdiction.IntraState,
-            GstJurisdiction.IntraUnionTerritory,GstJurisdiction.Interstate},draft.Jurisdiction,panel:taxFields);
-        var confirm=dialog.Choice("Standard domestic supply reviewed",new[]{"No","Yes"},draft.DomesticConfirmed?"Yes":"No",panel:taxFields);
+            GstJurisdiction.IntraUnionTerritory,GstJurisdiction.Interstate},draft.Jurisdiction,panel:TaxPanel("Jurisdiction"));
+        var confirm=dialog.Choice("Standard domestic supply reviewed",new[]{"No","Yes"},draft.DomesticConfirmed?"Yes":"No",
+            panel:TaxPanel("DomesticConfirmed"));
+        void ApplyTax(string key,Control field)=>dialog.ConfigureField(field,form.Field(key) with {Visible=true},
+            form.Rules.ContainsKey(key));
+        ApplyTax("PlaceOfSupply",place);ApplyTax("Jurisdiction",jurisdiction);ApplyTax("DomesticConfirmed",confirm);
+        var reviewGstButton=reviewFields.Children.Count>0?dialog.FooterButton("Review GST details"):null;
+        void ReviewGst(object sender,RoutedEventArgs e)
+        {
+            var original=(place.SelectedItem,jurisdiction.SelectedItem,confirm.SelectedItem);
+            var review=new Window {Owner=dialog,Title="Review GST details",Width=Math.Min(700,SystemParameters.WorkArea.Width),
+                SizeToContent=SizeToContent.Height,WindowStartupLocation=WindowStartupLocation.CenterOwner};
+            review.SetResourceReference(Window.BackgroundProperty,"Palette.Surface");
+            review.SetResourceReference(Window.ForegroundProperty,"Palette.Text");
+            var layout=new DockPanel {Margin=new Thickness(16)};
+            var done=new Button {Content="Done",IsCancel=true,HorizontalAlignment=HorizontalAlignment.Right};
+            DockPanel.SetDock(done,Dock.Bottom);
+            layout.Children.Add(done);
+            layout.Children.Add(reviewFields);
+            review.Content=layout;
+            try {review.ShowDialog();}
+            finally
+            {
+                layout.Children.Remove(reviewFields);
+                if(original!=(place.SelectedItem,jurisdiction.SelectedItem,confirm.SelectedItem)) dialog.MarkChanged();
+                Queue();
+            }
+        }
+        MeasureEditorDialog.OrderConfigured(taxFields);
+        MeasureEditorDialog.OrderConfigured(reviewFields);
         var notesFields=new WrapPanel();
         var rows=new StackPanel();
         var editors=new List<LineControls>();
@@ -85,7 +115,12 @@ internal static class SalesInvoiceEditor
         var closed=false;
         var summary=new TextBlock {Text="Complete the draft to calculate totals.",TextWrapping=TextWrapping.Wrap,
             HorizontalAlignment=HorizontalAlignment.Right,Margin=new Thickness(16,7,16,7),FontWeight=FontWeights.SemiBold};
-        var summaryCard=new Border {Child=summary,CornerRadius=new CornerRadius(7),BorderThickness=new Thickness(1),
+        var summaryContent=new StackPanel();
+        if(form.Rules.TryGetValue("Summary",out var summaryRule))
+            summaryContent.Children.Add(new TextBlock {Text=summaryRule.Label,FontWeight=FontWeights.Bold,
+                HorizontalAlignment=HorizontalAlignment.Right,Margin=new Thickness(16,5,16,0)});
+        summaryContent.Children.Add(summary);
+        var summaryCard=new Border {Child=summaryContent,CornerRadius=new CornerRadius(7),BorderThickness=new Thickness(1),
             Margin=new Thickness(16,4,16,4)};
         summaryCard.SetResourceReference(Border.BorderBrushProperty,"Palette.GridLine");
         dialog.DockSummary(summaryCard);
@@ -96,25 +131,34 @@ internal static class SalesInvoiceEditor
         lineArea.Children.Add(lineButtons);
         lineArea.Children.Add(new ScrollViewer {Content=rows,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility=ScrollBarVisibility.Auto,MaxHeight=430});
-        dialog.AddCard("Products",lineArea);
-        dialog.AddCard("Additional details",new Expander {Header="Payment, transport and notes",Content=notesFields});
-        var po=dialog.Text("Customer PO reference",draft.PurchaseOrder,100,panel:notesFields);
+        Card("Products",lineArea);
+        Card("AdditionalDetails",notesFields);
+        TextBox Detail(string key,string? value,int max)
+        {
+            var field=dialog.Text(form.Field(key).Label,Initial(key,value),max,panel:notesFields);
+            Apply(key,field);
+            return field;
+        }
         var poDate=dialog.Date("Customer PO date",draft.PurchaseOrderDate,panel:notesFields);
-        var reference=dialog.Text("Internal reference",draft.Reference,100,panel:notesFields);
+        Apply("PurchaseOrderDate",poDate);
+        var reference=Detail("Reference",draft.Reference,100);
         var due=dialog.Date("Due date",draft.DueDate,panel:notesFields);
-        var terms=dialog.Text("Payment terms",draft.Terms,500,panel:notesFields);
-        var notes=dialog.Text("Notes",draft.Notes,800,panel:notesFields);
-        var internalRemarks=dialog.Text("Internal remarks",draft.InternalRemarks,800,panel:notesFields);
+        Apply("DueDate",due);
+        var terms=Detail("Terms",draft.Terms,500);
+        var notes=Detail("Notes",draft.Notes,800);
+        var internalRemarks=Detail("InternalRemarks",draft.InternalRemarks,800);
         var transport=draft.Transport;
-        TextBox TransportField(string name,string? value)=>dialog.Text(name,value,120,panel:notesFields);
-        var goodsReceipt=TransportField("G.R. number",transport?.GoodsReceipt);
-        var vehicle=TransportField("Vehicle number",transport?.Vehicle);
-        var weight=TransportField("Weight",transport?.Weight);
-        var carrier=TransportField("Transport",transport?.Carrier);
-        var orderThrough=TransportField("Order through",transport?.OrderThrough);
-        var privateMark=TransportField("Private mark",transport?.PrivateMark);
-        var document=TransportField("Transport document",transport?.Document);
-        var preparedBy=TransportField("Prepared by",transport?.PreparedBy);
+        var goodsReceipt=Detail("GoodsReceipt",transport?.GoodsReceipt,120);
+        var vehicle=Detail("Vehicle",transport?.Vehicle,120);
+        var weight=Detail("Weight",transport?.Weight,120);
+        var carrier=Detail("Carrier",transport?.Carrier,120);
+        var orderThrough=Detail("OrderThrough",transport?.OrderThrough,120);
+        var privateMark=Detail("PrivateMark",transport?.PrivateMark,120);
+        var document=Detail("Document",transport?.Document,120);
+        var preparedBy=dialog.Text("Prepared by",options.PreparedBy,120,locked:true,panel:notesFields);
+        Apply("PreparedBy",preparedBy);
+        MeasureEditorDialog.OrderConfigured(notesFields);
+        dialog.OrderConfiguredSections();
         void Add(SalesLineInput? value,int index)
         {
             var box=new WrapPanel {Margin=new Thickness(0,4,0,4)};
@@ -125,6 +169,18 @@ internal static class SalesInvoiceEditor
             box.Children.Add(number);
             var product=Choice("Product search",options.Products,value?.ProductId,box);
             product.Width=230;
+            var variant=dialog.Choice<SalesVariantChoice>("Variant",[],null,nameof(SalesVariantChoice.Label),box,searchable:true);
+            variant.Width=190;
+            void LoadVariants(Guid? keep=null,bool allowDefault=true)
+            {
+                var matches=(options.Variants??[]).Where(x=>x.ProductId==Id(product) && (x.Active || x.Id==keep)).ToArray();
+                SearchableComboBox.SetSource(variant,matches);
+                variant.SelectedItem=matches.FirstOrDefault(x=>x.Id==keep)??
+                    (allowDefault && matches.Length==1 && matches[0].Active?matches[0]:null);
+                if(variant.Parent is Border frame && frame.Parent is FrameworkElement field)
+                    field.Visibility=matches.Length==0?Visibility.Collapsed:Visibility.Visible;
+            }
+            LoadVariants(value?.ProductVariantId,allowDefault:value is null);
             TextBox Display(string name,int width)
             {
                 var field=dialog.Text(name,"",200,true,panel:box);
@@ -142,13 +198,14 @@ internal static class SalesInvoiceEditor
             void FillProduct()
             {
                 var selected=product.SelectedItem as SalesChoice;
+                var selectedVariant=variant.SelectedItem as SalesVariantChoice;
                 code.Text=selected?.Code??"";
-                sku.Text=selected?.Sku??"";
+                sku.Text=selectedVariant?.Sku??selected?.Sku??"";
                 name.Text=selected?.ProductName??"";
                 brand.Text=selected?.Brand??"";
-                mrp.IsReadOnly=selected is null || selected.Mrp.HasValue || !options.CanFillMrp;
+                mrp.IsReadOnly=selected is null || selected.Mrp.HasValue || selectedVariant?.Mrp is not null || !options.CanFillMrp;
                 mrp.IsTabStop=!mrp.IsReadOnly;
-                mrp.Text=selected?.Mrp is decimal amount?Decimal(amount):"";
+                mrp.Text=(selectedVariant?.Mrp??selected?.Mrp) is decimal amount?Decimal(amount):"";
                 ShowMrpWarning();
             }
             FillProduct();
@@ -176,12 +233,14 @@ internal static class SalesInvoiceEditor
             mapping.Width=210;
             var total=Display("Line total",95);
             var item=new LineControls(product,unit,quantity,price,percent,fixedDiscount,inclusive,hsn,taxable,gst,total,number,mrp,mapping,
-                gross,appliedDiscount,taxAmount);
+                gross,appliedDiscount,taxAmount,variant);
             editors.Add(item);
             FillTax(false);
             void ShowMrpWarning()
             {
-                var missing=product.SelectedItem is SalesChoice {Mrp:null} && string.IsNullOrWhiteSpace(mrp.Text);
+                var missing=product.SelectedItem is SalesChoice {Mrp:null} &&
+                    (variant.SelectedItem as SalesVariantChoice)?.Mrp is null && string.IsNullOrWhiteSpace(mrp.Text);
+                dialog.ShowConfiguredField(mrp,form.Field("Mrp").Visible || !mrp.IsReadOnly);
                 dialog.SetFieldWarning(mrp,!missing?null:options.CanFillMrp?"MRP is missing. Enter it to update this product on Save.":
                     "MRP is missing. Product pricing permission is required to add it.");
             }
@@ -236,16 +295,30 @@ internal static class SalesInvoiceEditor
                 var selected=product.SelectedItem as SalesChoice;
                 SearchableComboBox.SetSource(unit,Units(selected?.Id));
                 unit.SelectedIndex=0;
-                price.Text=selected?.Price is decimal defaultPrice?Decimal(defaultPrice):"";
+                LoadVariants();
+                ResetPrice();
                 inclusive.SelectedItem=selected?.Inclusive==true?"Yes":"No";
                 FillProduct();
                 FillTax(false);
             };
             unit.SelectionChanged+=(_,_) =>
             {
-                price.Text=Id(unit)==Guid.Empty && (product.SelectedItem as SalesChoice)?.Price is decimal defaultPrice
-                    ?Decimal(defaultPrice):"";
+                ResetPrice();
             };
+            variant.SelectionChanged+=(_,_)=>{ResetPrice();FillProduct();};
+            void ResetPrice()
+            {
+                var rate=(variant.SelectedItem as SalesVariantChoice)?.SalesRate??(product.SelectedItem as SalesChoice)?.Price;
+                price.Text=Id(unit)==Guid.Empty && rate is decimal amount?Decimal(amount):"";
+            }
+            Apply("ProductId",product);Apply("VariantId",variant);Apply("ProductCode",code);Apply("Sku",sku);
+            Apply("ProductName",name);Apply("Brand",brand);Apply("Hsn",hsn);Apply("Mrp",mrp);Apply("UnitId",unit);
+            Apply("Quantity",quantity);Apply("Price",price);Apply("DiscountPercent",percent);Apply("DiscountAmount",fixedDiscount);
+            Apply("Inclusive",inclusive);Apply("TaxAssignment",mapping);Apply("Taxable",taxable);Apply("Gross",gross);
+            Apply("AppliedDiscount",appliedDiscount);Apply("Gst",gst);Apply("TaxAmount",taxAmount);Apply("Total",total);
+            if(variant.Items.Count==0 && variant.Parent is Border frame && frame.Parent is FrameworkElement field)
+                field.Visibility=Visibility.Collapsed;
+            MeasureEditorDialog.OrderConfigured(box);
             var remove=new Button {Content="Remove",VerticalAlignment=VerticalAlignment.Center,Padding=new Thickness(8,4,8,4)};
             box.Children.Add(remove);
             remove.Click+=(_,_)=>{date.SelectedDateChanged-=invoiceDateChanged;editors.Remove(item);rows.Children.Remove(lineCard); for(var i=0;i<editors.Count;i++) editors[i].Number.Text=(i+1).ToString(CultureInfo.CurrentCulture); dialog.MarkChanged();Queue();};
@@ -257,10 +330,12 @@ internal static class SalesInvoiceEditor
         {
             [nameof(SalesDraft.Date)]=date,[nameof(SalesDraft.YearId)]=year,[nameof(SalesDraft.SeriesId)]=series,
             [nameof(SalesDraft.RegistrationId)]=registration,[nameof(SalesDraft.CustomerId)]=customer,
-            [nameof(SalesDraft.BillingAddressId)]=bill,[nameof(SalesDraft.ShippingAddressId)]=ship,
+            [nameof(SalesDraft.BillingAddressId)]=addresses.BillingField,[nameof(SalesDraft.ShippingAddressId)]=addresses.ShippingField,
             [nameof(SalesDraft.PlaceOfSupply)]=place,[nameof(SalesDraft.Jurisdiction)]=jurisdiction,
-            [nameof(SalesDraft.DomesticConfirmed)]=confirm,[nameof(SalesDraft.PurchaseOrder)]=po,
-            [nameof(SalesDraft.Lines)]=add
+            [nameof(SalesDraft.DomesticConfirmed)]=confirm,
+            [nameof(SalesDraft.Lines)]=add,["PurchaseOrder"]=po,["Reference"]=reference,["Terms"]=terms,["Notes"]=notes,
+            ["InternalRemarks"]=internalRemarks,["GoodsReceipt"]=goodsReceipt,["Vehicle"]=vehicle,["Weight"]=weight,
+            ["Carrier"]=carrier,["OrderThrough"]=orderThrough,["PrivateMark"]=privateMark,["Document"]=document,["PreparedBy"]=preparedBy
         };
         var visibleErrors=new HashSet<Control>();
         var attempted=false;
@@ -277,6 +352,7 @@ internal static class SalesInvoiceEditor
             return issue.Field switch
             {
                 nameof(SalesLineInput.ProductId)=>line.Product,
+                nameof(SalesLineInput.ProductVariantId)=>line.Variant,
                 nameof(SalesLineInput.UnitId)=>line.Unit,
                 nameof(SalesLineInput.Quantity)=>line.Quantity,
                 nameof(SalesLineInput.Price)=>line.Price,
@@ -302,7 +378,7 @@ internal static class SalesInvoiceEditor
             {
                 dialog.SetFieldError(group.Key,string.Join(" ",group.Select(item=>item.Message).Distinct()));
                 visibleErrors.Add(group.Key);
-                first??=group.Key;
+                if(group.Key.IsVisible) first??=group.Key;
             }
             if(focus && first is not null) dialog.FocusInvalidField(first);
         }
@@ -324,9 +400,15 @@ internal static class SalesInvoiceEditor
             Required(Id(registration).HasValue,nameof(SalesDraft.RegistrationId),"Select the supplier GST registration.");
             if(saving) Required(Id(series).HasValue,nameof(SalesDraft.SeriesId),"Select a series for this year and registration.");
             Required(Id(customer).HasValue,nameof(SalesDraft.CustomerId),"Select a customer.");
-            Required(selectedPlace.Length>0,nameof(SalesDraft.PlaceOfSupply),"Select the reviewed place of supply.");
-            Required(scope!=GstJurisdiction.Unresolved,nameof(SalesDraft.Jurisdiction),"Select the applicable GST jurisdiction.");
-            Required(domestic,nameof(SalesDraft.DomesticConfirmed),"Confirm that the standard domestic supply has been reviewed.");
+            if(Id(customer).HasValue)
+            {
+                if(addresses.IsLoading) Required(false,nameof(SalesDraft.CustomerId),"Wait for the customer addresses to load.");
+                else
+                {
+                    Required(addresses.BillingId.HasValue,nameof(SalesDraft.BillingAddressId),"Select or add a billing address.");
+                    Required(addresses.ShippingId.HasValue,nameof(SalesDraft.ShippingAddressId),"Select or add a shipping address.");
+                }
+            }
             Required(editors.Count>0,nameof(SalesDraft.Lines),"Add at least one product line.");
             var lines=new List<SalesLineInput>();
             var completions=new List<SalesProductCompletion>();
@@ -340,13 +422,17 @@ internal static class SalesInvoiceEditor
                 var pctOk=OptionalNumber(line.Percent,out var pct);
                 var discountOk=OptionalNumber(line.Discount,out var amount);
                 Required(product.HasValue,nameof(SalesLineInput.ProductId),"Select a product.",n);
+                var selectedVariant=line.Variant.SelectedItem as SalesVariantChoice;
+                if(product.HasValue && (options.Variants??[]).Any(x=>x.ProductId==product && x.Active))
+                    Required(selectedVariant is {Active:true},nameof(SalesLineInput.ProductVariantId),"Select an active variant.",n);
                 Required(quantityOk,nameof(SalesLineInput.Quantity),"Enter a numeric quantity.",n);
                 Required(priceOk,nameof(SalesLineInput.Price),"Enter a numeric unit price for the selected unit.",n);
                 Required(pctOk,nameof(SalesLineInput.DiscountPercent),"Enter a numeric percentage or leave blank.",n);
                 Required(discountOk,nameof(SalesLineInput.DiscountAmount),"Enter a numeric amount or leave blank.",n);
                 var unitId=Id(line.Unit);
                 var input=new SalesLineInput(product.GetValueOrDefault(),unitId==Guid.Empty?null:unitId,
-                    quantityOk?qty:1,priceOk?rate:0,line.Inclusive.SelectedItem as string=="Yes",pctOk?pct:0,discountOk?amount:0);
+                    quantityOk?qty:1,priceOk?rate:0,line.Inclusive.SelectedItem as string=="Yes",pctOk?pct:0,discountOk?amount:0,
+                    selectedVariant?.Id);
                 issues.AddRange(SalesCalculation.ValidateLine(input,n,validateSubtotal:quantityOk && priceOk));
                 lines.Add(input);
                 decimal? enteredMrp=null;
@@ -366,10 +452,10 @@ internal static class SalesInvoiceEditor
                     completions.Add(new(n,enteredMrp,mapping?.AssignmentId));
             }
             if(issues.Count>0) return (null,issues,completions);
-            return (new(day!.Value,Id(year),Id(series),Id(registration),Id(customer),Id(bill),Id(ship),selectedPlace,
+            return (new(day!.Value,Id(year),Id(series),Id(registration),Id(customer),addresses.BillingId,addresses.ShippingId,selectedPlace,
                 scope,domestic,po.Text,Date(poDate),reference.Text,terms.Text,Date(due),notes.Text,internalRemarks.Text,lines,
                 new(goodsReceipt.Text.Trim(),vehicle.Text.Trim(),weight.Text.Trim(),carrier.Text.Trim(),orderThrough.Text.Trim(),
-                    privateMark.Text.Trim(),document.Text.Trim(),preparedBy.Text.Trim())),issues,completions);
+                    privateMark.Text.Trim(),document.Text.Trim(),options.PreparedBy??"")),issues,completions);
         }
 
         void Queue(bool wait=true)
@@ -395,9 +481,11 @@ internal static class SalesInvoiceEditor
                 ShowCalculated(null,"Calculating totals…");
                 var response=await send(SalesAction.Preview,input,completions,ct);
                 if(closed || ct.IsCancellationRequested) return;
-                ShowCalculated(response.Snapshot,"Totals unavailable. Review the highlighted fields or message.");
+                var gstPending=response.PendingGstLines is not null;
+                ShowCalculated(response.Snapshot,"Totals unavailable. Review the highlighted fields or message.",response.PendingGstLines);
                 DisplayErrors(response.FieldErrors??[],explicitPreview,keepNumbering:requireNumbering);
-                dialog.ShowMessage(SalesInvoiceViewModel.Error(response),NoticeKind.Error);
+                dialog.ShowMessage(gstPending?response.Message??SalesFormConfiguration.GstReviewPendingMessage:
+                    SalesInvoiceViewModel.Error(response),gstPending?NoticeKind.Warning:NoticeKind.Error);
                 if(explicitPreview && response.Outcome==CompanyOutcome.Success && response.Snapshot is not null)
                 {
                     var window=SalesInvoiceReadView.Create(response,options);
@@ -406,24 +494,26 @@ internal static class SalesInvoiceEditor
                 }
             });
         }
-        void ShowCalculated(SalesInvoiceSnapshot? snapshot,string error)
+        void ShowCalculated(SalesInvoiceSnapshot? snapshot,string error,IReadOnlyList<SalesLineEstimate>? pending=null)
         {
-            summary.Text=snapshot is null?error:Summary(snapshot.Amounts);
-            billingDetails.Text=snapshot is null?"":SalesInvoiceReadView.Address(snapshot.Customer.BillTo,snapshot.Customer.Gstin);
-            shippingDetails.Text=snapshot is null?"":SalesInvoiceReadView.Address(snapshot.Customer.ShipTo,snapshot.Customer.Gstin);
+            summary.Text=snapshot is not null?Summary(snapshot.Amounts,form,entry:true):pending is null?error:
+                $"Gross {pending.Sum(x=>x.Gross):N2} · Discount {pending.Sum(x=>x.Discount):N2} · GST jurisdiction pending";
             for(var i=0;i<editors.Count;i++)
             {
                 var line=snapshot?.Lines.ElementAtOrDefault(i);
+                var pricing=pending?.ElementAtOrDefault(i);
                 if(line is not null) editors[i].Hsn.Text=line.Tax.Rate.Code;
-                editors[i].Taxable.Text=line?.Amounts.Taxable.ToString("N2")??"";
+                editors[i].Taxable.Text=(line?.Amounts.Taxable??pricing?.Taxable)?.ToString("N2")??"";
                 if(line is not null) editors[i].Gst.Text=Decimal(line.Tax.Rate.Total);
-                editors[i].Total.Text=line?.Amounts.Total.ToString("N2")??"";
-                editors[i].Gross.Text=line?.Amounts.Subtotal.ToString("N2")??"";
-                editors[i].AppliedDiscount.Text=line?.Amounts.Discount.ToString("N2")??"";
-                editors[i].TaxAmount.Text=line?.Amounts.Tax.ToString("N2")??"";
+                editors[i].Total.Text=(line?.Amounts.Total??pricing?.Total)?.ToString("N2")??"";
+                editors[i].Gross.Text=(line?.Amounts.Subtotal??pricing?.Gross)?.ToString("N2")??"";
+                editors[i].AppliedDiscount.Text=(line?.Amounts.Discount??pricing?.Discount)?.ToString("N2")??"";
+                editors[i].TaxAmount.Text=(line?.Amounts.Tax??pricing?.Tax)?.ToString("N2")??"";
             }
         }
         recalculate.Click+=(_,_)=>Queue(false);
+        if(reviewGstButton is not null) reviewGstButton.Click+=ReviewGst;
+        addresses.Changed+=()=>Queue();
         dialog.AddHandler(TextBox.TextChangedEvent,new TextChangedEventHandler((_,e)=>{if(e.OriginalSource is TextBox {IsReadOnly:false}) Queue();}));
         dialog.AddHandler(SelectorEvent(),new SelectionChangedEventHandler((_,_)=>Queue()));
         dialog.AddHandler(DatePicker.SelectedDateChangedEvent,new EventHandler<SelectionChangedEventArgs>((_,_)=>Queue()));
@@ -436,7 +526,8 @@ internal static class SalesInvoiceEditor
             if(input is null) return issues[0].Message;
             var response=await send(SalesAction.Save,input,completions,CancellationToken.None);
             if(response.Outcome!=CompanyOutcome.Success) DisplayErrors(response.FieldErrors??[],true);
-            if(review && response.Row is { } saved && response.Outcome==CompanyOutcome.Success) finalize?.Invoke(saved);
+            if(review && response.Row is { } saved && response.Outcome==CompanyOutcome.Success)
+                finalize?.Invoke(saved);
             return response.Outcome==CompanyOutcome.Success?null:SalesInvoiceViewModel.Error(response);
         }
         dialog.Save(()=>SaveDraft(false),Label("SaveDraft","Save Draft"));
@@ -457,12 +548,14 @@ internal static class SalesInvoiceEditor
         value=0;
         return string.IsNullOrWhiteSpace(input.Text) || Number(input,out value);
     }
-    internal static string Summary(SalesAmounts a)=>
+    internal static string Summary(SalesAmounts a,SalesFormConfiguration? form=null,bool entry=false)=>
         $"Subtotal {a.Subtotal:N2} · {Label("Discount","Discount")} {a.Discount:N2} · {Label("Taxable","Taxable value")} {a.Taxable:N2}"+Environment.NewLine+
         $"{Label("Cgst","CGST")} {a.Cgst:N2} · {Label("Sgst","SGST")} {a.Sgst:N2} · {Label("Igst","IGST")} {a.Igst:N2} · UTGST {a.Utgst:N2} · {Label("Cess","Cess")} {a.Cess:N2}"+Environment.NewLine+
-        $"{Label("RoundOff","Round off")} {a.RoundOff:N2} · {Label("Total","Grand total")} INR {a.Total:N2}";
+        $"{Label("RoundOff","Round off")} {a.RoundOff:N2}"+
+        (entry && form?.Field("GrandTotal").Visible==false?"":
+            $" · {form?.Caption("GrandTotal",Label("Total","Grand total"))??Label("Total","Grand total")} INR {a.Total:N2}");
     private sealed record Place(string Code,string Label);
     private sealed record LineControls(ComboBox Product,ComboBox Unit,TextBox Quantity,TextBox Price,TextBox Percent,TextBox Discount,
         ComboBox Inclusive,TextBox Hsn,TextBox Taxable,TextBox Gst,TextBox Total,TextBlock Number,TextBox Mrp,ComboBox Mapping,
-        TextBox Gross,TextBox AppliedDiscount,TextBox TaxAmount);
+        TextBox Gross,TextBox AppliedDiscount,TextBox TaxAmount,ComboBox Variant);
 }

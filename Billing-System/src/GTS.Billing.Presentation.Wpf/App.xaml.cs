@@ -128,6 +128,8 @@ public partial class App : System.Windows.Application
             builder.Services.AddSingleton<CustomerViewModel>();
             builder.Services.AddSingleton<IProductCatalogStore, ProductCatalogStore>();
             builder.Services.AddSingleton<ProductCatalogService>();
+            builder.Services.AddSingleton<IProductVariantStore,ProductVariantStore>();
+            builder.Services.AddSingleton<ProductVariantService>();
             builder.Services.AddSingleton<CatalogViewModel>();
             builder.Services.AddSingleton<IUnitBrandStore, UnitBrandStore>();
             builder.Services.AddSingleton<UnitBrandService>();

@@ -3,6 +3,7 @@
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  xmlns:local="clr-namespace:GTS.Billing.Presentation.Wpf">
  <UserControl.Resources>
+  <BooleanToVisibilityConverter x:Key="Visible"/>
   <Style x:Key="InvoiceButton" TargetType="Button" BasedOn="{StaticResource BillingButton}">
    <Setter Property="Margin" Value="0,0,8,6"/><Setter Property="Padding" Value="12,5"/><Setter Property="MinHeight" Value="34"/>
   </Style>
@@ -10,7 +11,12 @@
  <DockPanel Margin="16">
   <StackPanel DockPanel.Dock="Top">
    <TextBlock Text="{DynamicResource Display.Sales.Title}" FontSize="26" FontWeight="SemiBold"/>
-   <local:NoticeBanner Text="{Binding Message}" Margin="0,6" />
+   <DockPanel Margin="0,6">
+    <Button DockPanel.Dock="Right" Content="Close" Command="{Binding DismissFinalizationNoticeCommand}"
+      Visibility="{Binding CanDismissFinalizationNotice,Converter={StaticResource Visible}}" Margin="6,0,0,0"/>
+    <local:NoticeBanner Text="{Binding Message}" Kind="{Binding FinalizationNoticeKind}"/>
+   </DockPanel>
+   <ProgressBar Height="4" IsIndeterminate="{Binding Busy}" Visibility="{Binding Busy,Converter={StaticResource Visible}}"/>
    <WrapPanel>
     <TextBox Width="220" Height="34" Padding="7,4" Margin="0,0,8,6" MaxLength="100"
      Text="{Binding SearchText,UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search invoices"/>

@@ -329,6 +329,57 @@ internal sealed class MeasureEditorDialog : Window
         card.SetResourceReference(Border.BorderBrushProperty,"Palette.GridLine");
         fields.Children.Add(card);
     }
+
+    internal FrameworkElement AddConfiguredCard(SalesFormRule rule,FrameworkElement content)
+    {
+        AddCard(rule.Label,content);
+        var card=(FrameworkElement)fields.Children[^1];
+        card.Tag=rule.Order;
+        card.Visibility=rule.Visible?Visibility.Visible:Visibility.Collapsed;
+        return card;
+    }
+
+    internal void ConfigureField(Control control,SalesFormRule rule,bool customized=true)
+    {
+        if(control.Parent is not Border {Parent:StackPanel group}) return;
+        group.Tag=rule.Order;
+        if(!customized) return;
+        group.Visibility=rule.Visible?Visibility.Visible:Visibility.Collapsed;
+        if(group.Children.OfType<Label>().FirstOrDefault() is { } label)
+            label.Content=rule.Label+(rule.Required && !rule.Label.EndsWith('*')?" *":"");
+        AutomationProperties.SetName(control,rule.Label);
+        var hint=string.Join(" · ",new[]{rule.Placeholder,rule.Help}.Where(x=>!string.IsNullOrWhiteSpace(x)));
+        if(hint.Length>0) control.ToolTip=hint;
+        if(rule.Placeholder.Length>0 && control is TextBox text && !rule.ReadOnly)
+        {
+            var placeholder=new TextBlock {Text=rule.Placeholder,TextWrapping=TextWrapping.Wrap,
+                FontSize=11,Margin=new Thickness(2,3,2,0)};
+            placeholder.SetResourceReference(TextBlock.ForegroundProperty,"Palette.Text");
+            group.Children.Insert(group.Children.IndexOf((UIElement)control.Parent)+1,placeholder);
+            void RefreshHint()=>placeholder.Visibility=string.IsNullOrEmpty(text.Text)?Visibility.Visible:Visibility.Collapsed;
+            text.TextChanged+=(_,_)=>RefreshHint();
+            RefreshHint();
+        }
+        if(rule.ReadOnly && control is TextBox box) box.IsReadOnly=true;
+    }
+
+    internal void ShowConfiguredField(Control control,bool visible)
+    {
+        if(control.Parent is Border {Parent:StackPanel group})
+            group.Visibility=visible?Visibility.Visible:Visibility.Collapsed;
+    }
+
+    internal void OrderConfiguredSections()=>OrderConfigured(fields);
+    internal static void OrderConfigured(Panel panel)
+    {
+        var items=panel.Children.Cast<UIElement>().ToArray();
+        var ordered=items.Where(x=>x is FrameworkElement {Tag:int}).OrderBy(x=>(int)((FrameworkElement)x).Tag).ToArray();
+        var index=0;
+        var sequence=items.Select(x=>x is FrameworkElement {Tag:int}?ordered[index++]:x).ToArray();
+        if(items.SequenceEqual(sequence)) return;
+        panel.Children.Clear();
+        foreach(var item in sequence) panel.Children.Add(item);
+    }
     internal void MarkChanged()=>dirty=true;
     internal void ShowMessage(string text,NoticeKind kind=NoticeKind.Automatic)
     {

@@ -3933,6 +3933,70 @@ namespace GTS.Billing.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
+            modelBuilder.Entity("GTS.Billing.Domain.Product").HasAlternateKey("CompanyId", "Id");
+            modelBuilder.Entity("GTS.Billing.Domain.VariantOption", b =>
+            {
+                b.Property<Guid>("Id").HasColumnType("TEXT").ValueGeneratedOnAdd();
+                b.Property<Guid>("CompanyId").HasColumnType("TEXT");
+                b.Property<long>("Version").HasColumnType("INTEGER").IsConcurrencyToken();
+                b.Property<bool>("Active").HasColumnType("INTEGER");
+                b.Property<DateTime>("CreatedUtc").HasColumnType("TEXT");
+                b.Property<Guid>("CreatedBy").HasColumnType("TEXT");
+                b.Property<DateTime>("UpdatedUtc").HasColumnType("TEXT");
+                b.Property<Guid>("UpdatedBy").HasColumnType("TEXT");
+                b.Property<string>("Axis").HasColumnType("TEXT").IsRequired();
+                b.Property<string>("Code").HasColumnType("TEXT").IsRequired();
+                b.Property<string>("Name").HasColumnType("TEXT").IsRequired();
+                b.Property<string>("Hex").HasColumnType("TEXT");
+                b.Property<int>("SortOrder").HasColumnType("INTEGER");
+                b.HasKey("Id");
+                b.HasAlternateKey("CompanyId","Axis","Id");
+                b.HasIndex("CompanyId","Axis","Code").IsUnique();
+                b.ToTable("VariantOptions");
+                b.HasOne("GTS.Billing.Domain.Company",null).WithMany().HasForeignKey("CompanyId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            });
+            modelBuilder.Entity("GTS.Billing.Domain.ProductVariant", b =>
+            {
+                b.Property<Guid>("Id").HasColumnType("TEXT").ValueGeneratedOnAdd();
+                b.Property<Guid>("CompanyId").HasColumnType("TEXT");
+                b.Property<long>("Version").HasColumnType("INTEGER").IsConcurrencyToken();
+                b.Property<bool>("Active").HasColumnType("INTEGER");
+                b.Property<DateTime>("CreatedUtc").HasColumnType("TEXT");
+                b.Property<Guid>("CreatedBy").HasColumnType("TEXT");
+                b.Property<DateTime>("UpdatedUtc").HasColumnType("TEXT");
+                b.Property<Guid>("UpdatedBy").HasColumnType("TEXT");
+                b.Property<Guid>("ProductId").HasColumnType("TEXT");
+                b.Property<string>("Code").HasColumnType("TEXT").IsRequired();
+                b.Property<string>("Combination").HasColumnType("TEXT").IsRequired();
+                b.Property<string>("Sku").HasColumnType("TEXT");
+                b.Property<string>("Barcode").HasColumnType("TEXT").UseCollation("NOCASE");
+                b.Property<decimal?>("Mrp").HasColumnType("TEXT");
+                b.Property<decimal?>("SalesRate").HasColumnType("TEXT");
+                b.Property<decimal?>("PurchaseRate").HasColumnType("TEXT");
+                b.HasKey("Id");
+                b.HasAlternateKey("CompanyId","Id");
+                b.HasIndex("CompanyId","ProductId","Code").IsUnique();
+                b.HasIndex("CompanyId","ProductId","Combination").IsUnique();
+                b.HasIndex("CompanyId","Sku").IsUnique().HasFilter("Sku IS NOT NULL");
+                b.HasIndex("CompanyId","Barcode").IsUnique().HasFilter("Barcode IS NOT NULL");
+                b.ToTable("ProductVariants");
+                b.HasOne("GTS.Billing.Domain.Product",null).WithMany().HasForeignKey("CompanyId","ProductId")
+                    .HasPrincipalKey("CompanyId","Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            });
+            modelBuilder.Entity("GTS.Billing.Domain.ProductVariantOption", b =>
+            {
+                b.Property<Guid>("CompanyId").HasColumnType("TEXT");
+                b.Property<Guid>("VariantId").HasColumnType("TEXT");
+                b.Property<Guid>("OptionId").HasColumnType("TEXT");
+                b.Property<string>("Axis").HasColumnType("TEXT").IsRequired();
+                b.HasKey("CompanyId","VariantId","Axis");
+                b.HasIndex("CompanyId","Axis","OptionId");
+                b.ToTable("ProductVariantOptions");
+                b.HasOne("GTS.Billing.Domain.ProductVariant",null).WithMany().HasForeignKey("CompanyId","VariantId")
+                    .HasPrincipalKey("CompanyId","Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+                b.HasOne("GTS.Billing.Domain.VariantOption",null).WithMany().HasForeignKey("CompanyId","Axis","OptionId")
+                    .HasPrincipalKey("CompanyId","Axis","Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            });
 #pragma warning restore 612, 618
         }
     }

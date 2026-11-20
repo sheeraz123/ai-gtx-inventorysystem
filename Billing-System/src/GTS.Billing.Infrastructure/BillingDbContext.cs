@@ -20,6 +20,7 @@ public sealed class BillingDbContext(DbContextOptions<BillingDbContext> options)
         TaxSchema.Configure(modelBuilder);
         NumberingSchema.Configure(modelBuilder);
         SalesInvoiceSchema.Configure(modelBuilder);
+        ProductVariantSchema.Configure(modelBuilder);
     }
     public async Task<Company?> FindAsync(Guid id, CancellationToken cancellationToken = default) =>
         await Set<Company>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, cancellationToken);

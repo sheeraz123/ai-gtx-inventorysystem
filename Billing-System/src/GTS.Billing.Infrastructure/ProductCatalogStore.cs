@@ -347,6 +347,9 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
             var barcode = CatalogRules.Optional(input.Barcode)?.ToUpperInvariant();
             var identityChanged = isNew || product!.NormalizedName != name ||
                 product.Sku?.ToUpperInvariant() != sku || product.Barcode?.ToUpperInvariant() != barcode;
+            if(identityChanged && await db.Set<ProductVariant>().AnyAsync(x=>x.CompanyId==company &&
+                (sku!=null && x.Sku==sku || barcode!=null && x.Barcode!=null && x.Barcode.ToUpper()==barcode),ct))
+                return Invalid("Sku","This SKU or barcode is already assigned to a product variant.");
             if (identityChanged && !request.AcceptDuplicates && await products.AnyAsync(x => x.Id != recordId &&
                 (x.NormalizedName == name || sku != null && x.Sku != null && x.Sku.ToUpper() == sku ||
                  barcode != null && x.Barcode != null && x.Barcode.ToUpper() == barcode), ct))

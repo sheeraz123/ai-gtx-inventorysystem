@@ -65,7 +65,46 @@ public sealed class CustomerStore(DevelopmentDatabase database) : ICustomerStore
                 if(request.Operation==CustomerOperation.Snapshot) return await Snapshot(db,customer,context,request.Snapshot ?? new(),ct);
                 if(request.ExpectedVersion!=customer.Version) return new(CustomerOutcome.Conflict,context);
             }
-            if(request.Operation==CustomerOperation.Status)
+            Guid? savedAddressId=null;
+            if(request.Operation==CustomerOperation.SaveInvoiceAddress)
+            {
+                if(request.Address is not {AddressType:"Billing" or "Shipping"} input || !input.IsActive)
+                    return new(CustomerOutcome.InvalidInput,context);
+                var checkedAddress=CustomerRules.ValidateAddress(input);
+                if(checkedAddress.Errors.Count>0) return new(CustomerOutcome.InvalidInput,context,Errors:checkedAddress.Errors);
+                var owned=db.Set<CustomerAddress>().Where(x=>x.CompanyId==company.Id && x.CustomerId==customer.Id);
+                CustomerAddress address;
+                if(input.Id is Guid addressId)
+                {
+                    var existing=await owned.SingleOrDefaultAsync(x=>x.Id==addressId,ct);
+                    if(existing is null || existing.Version!=input.Version || !existing.IsActive || existing.AddressType!=input.AddressType)
+                        return new(CustomerOutcome.Conflict,context);
+                    address=existing;
+                    Copy(checkedAddress.Value with {IsDefaultBilling=existing.IsDefaultBilling,
+                        IsDefaultShipping=existing.IsDefaultShipping},address);
+                }
+                else
+                {
+                    if(await owned.CountAsync(ct)>=50) return new(CustomerOutcome.InvalidInput,context,
+                        Errors:new Dictionary<string,string>{{"General","This customer already has 50 addresses."}});
+                    address=new CustomerAddress {CompanyId=company.Id,CustomerId=customer.Id};
+                    if(request.EntryId is Guid sharedId)
+                    {
+                        var shared=await owned.SingleOrDefaultAsync(x=>x.Id==sharedId && x.AddressType=="Both" && x.IsActive,ct);
+                        if(shared is null) return new(CustomerOutcome.Conflict,context);
+                        if(input.AddressType=="Billing" && shared.IsDefaultBilling) shared.IsDefaultBilling=false;
+                        if(input.AddressType=="Shipping" && shared.IsDefaultShipping) shared.IsDefaultShipping=false;
+                        await db.SaveChangesAsync(ct);
+                    }
+                    var hasDefault=await owned.AnyAsync(x=>x.IsActive &&
+                        (input.AddressType=="Billing"?x.IsDefaultBilling:x.IsDefaultShipping),ct);
+                    Copy(checkedAddress.Value with {IsDefaultBilling=input.AddressType=="Billing" && !hasDefault,
+                        IsDefaultShipping=input.AddressType=="Shipping" && !hasDefault},address);
+                    db.Add(address);
+                }
+                savedAddressId=address.Id;
+            }
+            else if(request.Operation==CustomerOperation.Status)
             {
                 if(!CustomerRules.Statuses.Contains(request.Status!)) return new(CustomerOutcome.InvalidInput,context);
                 customer.Status=request.Status!;
@@ -120,11 +159,12 @@ public sealed class CustomerStore(DevelopmentDatabase database) : ICustomerStore
             db.Entry(customer).Property(x=>x.UpdatedUtc).IsModified=true;
             db.Add(new AuditEvent {CompanyId=company.Id,ActorUserId=actor.UserId,ActorKind="User",
                 Action="Customer"+request.Operation,RecordType="Customer",RecordId=customer.Id.ToString(),
-                ChangesJson=JsonSerializer.Serialize(new {Operation=request.Operation.ToString(),EntryId=request.EntryId})});
+                ChangesJson=JsonSerializer.Serialize(new {Operation=request.Operation.ToString(),EntryId=savedAddressId??request.EntryId})});
             await db.SaveChangesAsync(ct);
-            var detail=Redact(await Read(db,customer,ct),Can("BankView"),Can("InternalNotes"));
+            var detail=request.Operation==CustomerOperation.SaveInvoiceAddress?null:
+                Redact(await Read(db,customer,ct),Can("BankView"),Can("InternalNotes"));
             ct.ThrowIfCancellationRequested();await transaction.CommitAsync(ct);
-            return new(CustomerOutcome.Success,context,detail);
+            return new(CustomerOutcome.Success,context,detail,AddressId:savedAddressId);
         }
         catch(OperationCanceledException) {throw;}
         catch(DbUpdateConcurrencyException) {return new(CustomerOutcome.Conflict);}

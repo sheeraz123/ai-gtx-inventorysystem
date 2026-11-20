@@ -33,7 +33,8 @@ public partial class MainWindow : Window
         CompanyViewModel? companies=null,CustomerViewModel? customers=null,CatalogViewModel? catalog=null,
         SecurityAdministrationViewModel? security=null,SecurityAdministrationService? securityService=null,
         SettingsViewModel? settings=null,ApplicationSettingsService? settingsService=null,UnitBrandViewModel? unitBrand=null,
-        TaxViewModel? tax=null,NumberingViewModel? numbering=null,SalesInvoiceViewModel? sales=null)
+        TaxViewModel? tax=null,NumberingViewModel? numbering=null,SalesInvoiceViewModel? sales=null,
+        ProductVariantService? variants=null)
     {
         SettingsDisplay.Instance.Apply(ResolvedSettings.Empty);
         InitializeComponent();
@@ -42,6 +43,7 @@ public partial class MainWindow : Window
         CompanyPanel.DataContext = companies;
         CustomerPanel.DataContext = customers;
         CatalogPanel.DataContext = catalog;
+        CatalogPanel.Variants=variants;
         UnitBrandPanel.DataContext = unitBrand;
         TaxPanel.DataContext=tax;
         NumberingPanel.DataContext=numbering;

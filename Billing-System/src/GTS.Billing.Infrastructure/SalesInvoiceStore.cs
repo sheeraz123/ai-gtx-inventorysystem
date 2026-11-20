@@ -26,14 +26,14 @@ public sealed class SalesInvoiceStore(DevelopmentDatabase database,ILogger<Sales
             var grants=admin?null:await ScopedAccess.ResolveAsync(db,actor.UserId,company.Id,ct);
             bool Can(string permission)=>admin || grants!.Contains("SalesInvoice."+permission);
             if(!Can("View") || !Can("ViewFinancials") || request.Action==SalesAction.Save && !Can(request.Id.HasValue?"EditDraft":"Create") ||
-                request.Action==SalesAction.Finalize && !Can("Finalize") ||
+                request.Action is SalesAction.Finalize or SalesAction.PrepareFinalization && !Can("Finalize") ||
                 request.Action is SalesAction.Print or SalesAction.PrintToPdf && !Can("Print") ||
                 request.Action==SalesAction.PrintToPdf && !Can("ExportPdf") ||
                 request.Action is SalesAction.PrintPreview or SalesAction.Print or SalesAction.PrintToPdf && request.PrintTemplateCode is not null &&
                 !admin && !grants!.Contains("InvoiceTemplate.View")) return new(CompanyOutcome.Forbidden);
             bool Granted(string permission)=>admin || grants!.Contains(permission);
             var canEditProduct=Granted("Product.View") && Granted("Product.Edit");
-            var work=new CompanySalesInvoices(db,company,actor.UserId,canEditProduct && Granted("Product.PricingEdit"),
+            var work=new CompanySalesInvoices(db,company,actor.UserId,actor.Username,canEditProduct && Granted("Product.PricingEdit"),
                 canEditProduct && Granted("GstRate.Assign"));
             var result=await work.RunAsync(request,ct);
             if(request.Action==SalesAction.Finalize ||
@@ -41,21 +41,28 @@ public sealed class SalesInvoiceStore(DevelopmentDatabase database,ILogger<Sales
             {
                 await db.SaveChangesAsync(ct);
                 await transaction.CommitAsync(ct);
+                if(result.Row is { } returned && db.Set<SalesInvoice>().Local.FirstOrDefault(x=>x.Id==returned.Id) is { } saved)
+                    result=result with {Row=returned with {Version=saved.Version}};
             }
             return result;
         }
         catch(DbUpdateConcurrencyException) {return new(CompanyOutcome.Conflict,Message:"The draft changed. Refresh it before trying again.");}
         catch(Exception error) when(error is SqliteException or DbUpdateException or InvalidOperationException or JsonException)
         {
-            if(request.Action==SalesAction.Finalize)
-                logger.LogWarning(new EventId(5101),"Sales invoice finalization requires a status refresh after an operational failure.");
+            if(request.Action is SalesAction.Finalize or SalesAction.PrepareFinalization)
+            {
+                var reference=Guid.NewGuid();
+                logger.LogWarning(new EventId(5101),"Sales invoice finalization failed. Reference {Reference}; exception {ExceptionType}; code {ErrorCode}.",
+                    reference,error.GetType().Name,error.HResult);
+                return new(CompanyOutcome.Unavailable,Message:$"Finalization could not complete. Refresh the draft and try again. Reference: {reference:N}.");
+            }
             return new(CompanyOutcome.Unavailable,Message:"The invoice operation could not complete. Refresh before retrying.");
         }
     }
     internal static SalesResult Invalid(string message)=>new(CompanyOutcome.InvalidInput,Message:message);
 }
 
-internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,Guid actor,bool canFillMrp,bool canLinkTax)
+internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,Guid actor,string username,bool canFillMrp,bool canLinkTax)
 {
     private IQueryable<SalesInvoice> Invoices=>db.Set<SalesInvoice>().Where(x=>x.CompanyId==company.Id);
     private IQueryable<FinancialYear> Years=>db.Set<FinancialYear>().Where(x=>x.CompanyId==company.Id);
@@ -69,6 +76,7 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
     {
         if(request.Action==SalesAction.Options) return await Options(ct);
         if(request.Action==SalesAction.List) return await List(request,ct);
+        if(request.Action==SalesAction.CustomerAddresses) return await CustomerAddressesAsync(request.Customer,ct);
         var row=await Invoices.SingleOrDefaultAsync(x=>x.Id==request.Id,ct);
         if(request.Action is SalesAction.PrintPreview or SalesAction.Print or SalesAction.PrintToPdf)
         {
@@ -89,7 +97,8 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
             if(request.Action==SalesAction.PrintToPdf) Audit(row.Id,"PrintToPdfAuthorized");
             return new(CompanyOutcome.Success,company.Id,PrintModel:model);
         }
-        if(request.Id.HasValue && row is null || !request.Id.HasValue && request.Action is SalesAction.Finalize or SalesAction.View)
+        if(request.Id.HasValue && row is null || !request.Id.HasValue &&
+            request.Action is SalesAction.Finalize or SalesAction.View or SalesAction.PrepareFinalization)
             return new(CompanyOutcome.NotFound);
         if(request.ExpectedNumbering is {} required && (row is null || required.DocumentType!="TaxInvoice" ||
             row.Date!=required.DocumentDate || row.FinancialYearId!=required.FinancialYearId ||
@@ -107,7 +116,10 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
             if(request.Action==SalesAction.Finalize) Audit(row!.Id,"FinalizationRejected");
             return Invalid(message) with {FieldErrors=fields};
         }
-        var draft=request.Action==SalesAction.Finalize ? ReadDraft(row!) : request.Draft;
+        var finalization=request.Action is SalesAction.Finalize or SalesAction.PrepareFinalization;
+        var draft=finalization?ReadDraft(row!):request.Draft;
+        if(request.Action==SalesAction.Save && draft is not null)
+            draft=draft with {Transport=(draft.Transport??new("","","","","","","","")) with {PreparedBy=username}};
         if(draft?.Transport is { } transport &&
             new[]{transport.GoodsReceipt,transport.Vehicle,transport.Weight,transport.Carrier,transport.OrderThrough,
                 transport.PrivateMark,transport.Document,transport.PreparedBy}.Any(value=>value?.Length>120 || value?.Any(char.IsControl)==true))
@@ -115,8 +127,23 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
         if(draft is null || draft.Lines?.Count>250 ||
             new[]{draft.PurchaseOrder,draft.Reference,draft.Terms,draft.Notes,draft.InternalRemarks,draft.PlaceOfSupply}.Any(x=>x.Length>4000))
             return Reject("Enter an invoice date and review the field lengths.");
+        var companySettings=await SettingsStore.ReadCompanyAsync(db,company.Id,ct);
+        var form=SalesFormConfiguration.From(companySettings);
+        if(draft.PlaceOfSupply.Length==0 &&
+            draft.Jurisdiction==GstJurisdiction.Unresolved && !draft.DomesticConfirmed &&
+            companySettings.Get(SettingsRegistry.ReviewedSalesGstPlace) is { Length:>0 } defaultPlace &&
+            Enum.TryParse<GstJurisdiction>(companySettings.Get(SettingsRegistry.ReviewedSalesGstJurisdiction),out var defaultJurisdiction) &&
+            defaultJurisdiction!=GstJurisdiction.Unresolved)
+            draft=draft with {PlaceOfSupply=defaultPlace,Jurisdiction=defaultJurisdiction,DomesticConfirmed=true};
         var requiredFields=draft.RequiredFields(requireNumbering:request.Action!=SalesAction.Preview);
-        if(requiredFields.Count>0) return Reject(requiredFields[0].Message,requiredFields);
+        var gstPending=requiredFields.Any(error=>SalesFormConfiguration.IsGstInput(error.Field));
+        if(gstPending && !finalization)
+            requiredFields=requiredFields.Where(error=>!SalesFormConfiguration.IsGstInput(error.Field)).ToArray();
+        if(requiredFields.Count>0) return Reject(gstPending && finalization
+            ?"GST review is incomplete. Edit the draft and use Review GST details, or configure reviewed company GST defaults where applicable."
+            :requiredFields[0].Message,requiredFields);
+        var formErrors=form.ValidateDraft(draft,row is null?null:ReadDraft(row));
+        if(formErrors.Count>0) return Reject(formErrors[0].Message,formErrors);
         if(request.Action==SalesAction.Save && row is null && request.CreateDraftId is Guid draftId)
         {
             if(draftId==Guid.Empty) return Reject("A valid draft submission ID is required.");
@@ -132,8 +159,11 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
             var completion=await StageProductCompletionsAsync(draft,completions,ct);
             if(completion.Outcome!=CompanyOutcome.Success) return completion;
         }
-        var preview=await CalculateAsync(draft,ct);
+        var preview=await CalculateAsync(draft,ct,gstPending);
         if(request.Action==SalesAction.Preview) return preview;
+        if(finalization && preview.Snapshot is { } reviewed && reviewed.Lines.Any(x=>x.Tax.Rate.Treatment!=TaxTreatment.Taxable))
+            return Reject("This workflow finalizes standard taxable lines only. Review the product tax treatment.");
+        if(request.Action==SalesAction.PrepareFinalization) return preview;
         if(request.Action==SalesAction.Finalize)
         {
             if(preview.Snapshot is not { } snapshot)
@@ -155,6 +185,21 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
         if(created) db.Add(row);
         Audit(row.Id,created?"DraftCreated":"DraftUpdated");
         return new(CompanyOutcome.Success,company.Id,preview.Message,Row:Describe(row,"",""),Draft:draft,Snapshot:preview.Snapshot,Confirmation:preview.Confirmation);
+    }
+
+    private async Task<SalesResult> CustomerAddressesAsync(Guid? customerId,CancellationToken ct)
+    {
+        var customer=await Customers.Where(x=>x.Id==customerId).Select(x=>new {x.Id,x.Version,x.LegalName,x.Gstin}).SingleOrDefaultAsync(ct);
+        if(customer is null) return new(CompanyOutcome.NotFound);
+        var addresses=await db.Set<CustomerAddress>().AsNoTracking().Where(x=>x.CompanyId==company.Id &&
+            x.CustomerId==customer.Id && x.IsActive).OrderBy(x=>x.Label).Select(x=>new CustomerAddressDraft
+            {
+                Id=x.Id,Version=x.Version,Label=x.Label,AddressType=x.AddressType,RecipientName=x.RecipientName,
+                Organization=x.Organization,Line1=x.Line1,Line2=x.Line2,Landmark=x.Landmark,Locality=x.Locality,
+                City=x.City,District=x.District,StateName=x.StateName,StateCode=x.StateCode,PostalCode=x.PostalCode,
+                Country=x.Country,Mobile=x.Mobile,Email=x.Email,IsDefaultBilling=x.IsDefaultBilling,IsDefaultShipping=x.IsDefaultShipping
+            }).ToArrayAsync(ct);
+        return new(CompanyOutcome.Success,company.Id,CustomerAddresses:new(customer.Id,customer.Version,customer.LegalName,customer.Gstin,addresses));
     }
 
     private async Task<SalesResult> List(SalesRequest request,CancellationToken ct)
@@ -223,9 +268,23 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
             new {c.CompanyId,Id=c.UnitId} equals new {u.CompanyId,u.Id}
             where c.CompanyId==company.Id && c.Active && u.Active
             select new SalesChoice(u.Id,u.Code+" — "+u.Name,c.ProductId,null)).ToArrayAsync(ct);
+        var variants=await db.Set<ProductVariant>().Where(x=>x.CompanyId==company.Id).OrderBy(x=>x.Code).ToArrayAsync(ct);
+        var attributes=(await VariantAttributesAsync(ct)).ToLookup(x=>x.VariantId,x=>x.Value);
+        var variantChoices=variants.Select(x=>new SalesVariantChoice(x.Id,x.ProductId,x.Code,x.Sku,x.Barcode,
+            string.Join(" / ",attributes[x.Id].Select(a=>a.Name)),x.Mrp,x.SalesRate,x.Active)).ToArray();
         return new(CompanyOutcome.Success,company.Id,Options:new(years,series,registrations,customers,billing,shipping,products,
-            units,company.LegalName,await TaxChoicesAsync(ct),canFillMrp,canLinkTax));
+            units,company.LegalName,await TaxChoicesAsync(ct),canFillMrp,canLinkTax,variantChoices,
+            SalesFormConfiguration.From(await SettingsStore.ReadCompanyAsync(db,company.Id,ct)),username));
     }
+
+    private sealed record VariantAttributeRow(Guid VariantId,VariantAttributeSnapshot Value);
+    private Task<VariantAttributeRow[]> VariantAttributesAsync(CancellationToken ct)=>
+        (from link in db.Set<ProductVariantOption>()
+         join option in db.Set<VariantOption>() on new {link.CompanyId,link.Axis,Id=link.OptionId}
+             equals new {option.CompanyId,option.Axis,option.Id}
+         where link.CompanyId==company.Id
+         orderby link.Axis
+         select new VariantAttributeRow(link.VariantId,new(option.Axis,option.Code,option.Name))).ToArrayAsync(ct);
 
     private async Task<SalesTaxChoice[]> TaxChoicesAsync(CancellationToken ct)
     {
@@ -326,6 +385,10 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
             if(!await Products.AnyAsync(x=>x.Id==line.ProductId && x.Active,ct)) errors.Add(new(nameof(line.ProductId),"Choose an active product in this company.",index));
             if(line.UnitId.HasValue && !await db.Set<ProductUnitConversion>().AnyAsync(x=>x.CompanyId==company.Id &&
                 x.ProductId==line.ProductId && x.UnitId==line.UnitId && x.Active,ct)) errors.Add(new(nameof(line.UnitId),"Choose a unit configured for this product.",index));
+            var variants=db.Set<ProductVariant>().Where(x=>x.CompanyId==company.Id && x.ProductId==line.ProductId && x.Active);
+            if(line.ProductVariantId is Guid variantId ? !await variants.AnyAsync(x=>x.Id==variantId,ct)
+                : await variants.AnyAsync(ct))
+                errors.Add(new(nameof(line.ProductVariantId),"Choose an active variant belonging to this product.",index));
         }
         return errors;
     }
@@ -333,7 +396,7 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
     private static SalesResult FieldError(string field,string message,int? line=null)=>
         Invalid(message) with {FieldErrors=[new(field,message,line)]};
 
-    private async Task<SalesResult> CalculateAsync(SalesDraft draft,CancellationToken ct)
+    private async Task<SalesResult> CalculateAsync(SalesDraft draft,CancellationToken ct,bool gstPending=false)
     {
         if(draft.RegistrationId is null || draft.CustomerId is null ||
             draft.Lines is not {Count:>0}) return Invalid("Choose a supplier registration, customer and at least one product.");
@@ -345,9 +408,9 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
         if(buyer.Currency!="INR" || buyer.BillTo.Country!="IN" || buyer.ShipTo.Country!="IN")
             return Invalid("Stage 5A supports domestic addresses and INR invoices only.");
         var gst=await Registrations.SingleAsync(x=>x.Id==draft.RegistrationId,ct);
-        if(!CompanyRules.States.ContainsKey(draft.PlaceOfSupply) || !draft.DomesticConfirmed ||
+        if(!gstPending && (!CompanyRules.States.ContainsKey(draft.PlaceOfSupply) || !draft.DomesticConfirmed ||
             (draft.Jurisdiction is GstJurisdiction.IntraState or GstJurisdiction.IntraUnionTerritory) && draft.PlaceOfSupply!=gst.StateCode ||
-            draft.Jurisdiction==GstJurisdiction.Interstate && draft.PlaceOfSupply==gst.StateCode)
+            draft.Jurisdiction==GstJurisdiction.Interstate && draft.PlaceOfSupply==gst.StateCode))
             return FieldError(!draft.DomesticConfirmed?nameof(draft.DomesticConfirmed):nameof(draft.Jurisdiction),"Review the domestic supply, place of supply and GST jurisdiction for this registration.");
         var address=await (from link in db.Set<GstRegistrationAddress>() join a in db.Set<CompanyAddress>()
             on new {link.CompanyId,Id=link.AddressId} equals new {a.CompanyId,a.Id}
@@ -368,6 +431,11 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
             presentation with {Tax=new(gst.Id,gst.Gstin,gst.StateCode)},company.Iec);
         var lines=new List<FinalSalesLine>();
         var resolvedProducts=new Dictionary<(Guid Product,Guid? Unit),CatalogResult>();
+        var estimates=new List<SalesLineEstimate>();
+        var variantIds=draft.Lines.Where(x=>x.ProductVariantId.HasValue).Select(x=>x.ProductVariantId!.Value).Distinct().ToArray();
+        var selectedVariants=await db.Set<ProductVariant>().Where(x=>x.CompanyId==company.Id && variantIds.Contains(x.Id))
+            .ToDictionaryAsync(x=>x.Id,ct);
+        var variantAttributes=variantIds.Length==0?null:(await VariantAttributesAsync(ct)).ToLookup(x=>x.VariantId,x=>x.Value);
         foreach(var line in draft.Lines)
         {
             var key=(line.ProductId,line.UnitId);
@@ -378,21 +446,35 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
                     Products,null,false,false,ct);
                 resolvedProducts.Add(key,item);
             }
-            var index=lines.Count+1;
+            var index=lines.Count+estimates.Count+1;
             if(item.Snapshot is not {Tax:{ } tax} product || product.Factor<=0 || product.Currency!="INR")
                 return item.Errors?.TryGetValue("TaxAssignment",out var taxError)==true
                     ?FieldError("TaxAssignment",taxError,index)
                     :FieldError(nameof(line.ProductId),item.Message??"Resolve the product tax profile and INR sales configuration.",index);
+            if(line.ProductVariantId is Guid variantId)
+            {
+                var variant=selectedVariants[variantId];
+                product=product with {Sku=variant.Sku??product.Sku,Barcode=variant.Barcode??product.Barcode,
+                    Mrp=variant.Mrp??product.Mrp,Variant=new(variant.Id,variant.Code,variant.Sku,variant.Barcode,
+                        variantAttributes![variantId].ToArray())};
+            }
             if(decimal.Round(line.Quantity,product.QuantityPrecision)!=line.Quantity)
                 return FieldError(nameof(line.Quantity),"Quantity exceeds the precision of the selected unit.",index);
-            var determination=GstDetermination.Determine(tax,new(gst.Id,buyer.CustomerId,draft.PlaceOfSupply,draft.Date,
-                draft.Jurisdiction,0,draft.DomesticConfirmed));
             var validation=SalesCalculation.ValidateLine(line,index);
             if(validation.Count>0) return Invalid(validation[0].Message) with {FieldErrors=validation};
+            if(gstPending)
+            {
+                estimates.Add(SalesCalculation.Estimate(line,tax));
+                continue;
+            }
+            var determination=GstDetermination.Determine(tax,new(gst.Id,buyer.CustomerId,draft.PlaceOfSupply,draft.Date,
+                draft.Jurisdiction,0,draft.DomesticConfirmed));
             if(determination.Snapshot is not {} applied || SalesCalculation.Calculate(line,applied) is not {} amounts)
                 return FieldError(nameof(draft.Jurisdiction),"The selected GST jurisdiction and product tax profile could not be applied.");
             lines.Add(new(index,line,product,applied with {TaxableValue=amounts.Taxable},line.Quantity*product.Factor,amounts));
         }
+        if(gstPending) return new(CompanyOutcome.Success,company.Id,SalesFormConfiguration.GstReviewPendingMessage,
+            Draft:draft,PendingGstLines:estimates);
         var effectiveDraft=draft with {Terms=string.IsNullOrWhiteSpace(draft.Terms)?buyer.PaymentTerms??"":draft.Terms};
         var snapshot=new SalesInvoiceSnapshot(effectiveDraft,buyer with {CapturedUtc=DateTime.UnixEpoch},seller,lines,SalesCalculation.Sum(lines.Select(x=>x.Amounts)));
         return new(CompanyOutcome.Success,company.Id,Snapshot:snapshot,
@@ -402,11 +484,6 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
     private async Task<SalesResult> FinalizeAsync(SalesInvoice row,SalesInvoiceSnapshot snapshot,CancellationToken ct)
     {
         var draft=snapshot.Draft;
-        if(snapshot.Lines.Any(x=>x.Tax.Rate.Treatment!=TaxTreatment.Taxable))
-        {
-            Audit(row.Id,"FinalizationRejected");
-            return Invalid("This stage finalizes standard taxable lines only. Use the applicable document workflow for other treatments when available.");
-        }
         var series=await Series.SingleAsync(x=>x.Id==draft.SeriesId,ct);
         var year=await Years.SingleAsync(x=>x.Id==draft.YearId,ct);
         var format=DocumentNumberFormat.Create(new(Code:series.Code,Prefix:series.Prefix,Suffix:series.Suffix,
@@ -437,15 +514,26 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
 
     private async Task<SalesResult> View(SalesInvoice row,CancellationToken ct)
     {
+        var draft=ReadDraft(row);
+        SalesResult? calculated=null;
+        if(row.LedgerId is null)
+        {
+            var required=draft.RequiredFields(requireNumbering:false);
+            if(required.All(error=>SalesFormConfiguration.IsGstInput(error.Field)) &&
+                (await CheckReferences(draft,preview:true,ct)).Count==0)
+                calculated=await CalculateAsync(draft,ct,gstPending:required.Count>0);
+        }
         var snapshot=await db.Set<InvoiceSnapshot>().Where(x=>x.CompanyId==company.Id && x.LedgerId==row.LedgerId)
             .Select(x=>x.SnapshotJson).SingleOrDefaultAsync(ct);
         var ledger=await db.Set<DocumentNumberLedger>().SingleOrDefaultAsync(x=>x.CompanyId==company.Id && x.Id==row.LedgerId,ct);
         var events=await db.Set<AuditEvent>().Where(x=>x.CompanyId==company.Id && x.RecordType=="SalesInvoice" &&
             x.RecordId==row.Id.ToString()).OrderByDescending(x=>x.OccurredUtc).Take(50).ToArrayAsync(ct);
-        return new(CompanyOutcome.Success,company.Id,Row:Describe(row,"",""),Draft:ReadDraft(row),
-            Snapshot:snapshot is null?null:JsonSerializer.Deserialize<SalesInvoiceSnapshot>(snapshot),
+        return new(CompanyOutcome.Success,company.Id,Row:Describe(row,"",""),Draft:draft,
+            Snapshot:row.LedgerId is null?calculated?.Snapshot:
+                snapshot is null?null:JsonSerializer.Deserialize<SalesInvoiceSnapshot>(snapshot),
             Allocation:ledger is null?null:new(row.Id,ledger.Id,ledger.SeriesId,ledger.Sequence,ledger.CompleteNumber),
-            Audit:events.Select(x=>$"{x.OccurredUtc:u} · {x.Action}").ToArray());
+            Audit:events.Select(x=>$"{x.OccurredUtc:u} · {x.Action}").ToArray(),
+            PendingGstLines:calculated?.PendingGstLines);
     }
 
     private static SalesDraft ReadDraft(SalesInvoice row)=>JsonSerializer.Deserialize<SalesDraft>(row.DraftJson)!;

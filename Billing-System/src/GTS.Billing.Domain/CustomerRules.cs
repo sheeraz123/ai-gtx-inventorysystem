@@ -92,15 +92,11 @@ public static class CustomerRules
             Addresses=input.Addresses.Select(x=>x with {}).ToArray(),Contacts=input.Contacts.Select(x=>x with {}).ToArray()};
         TrimStrings(v);TrimStrings(v.Credit);TrimStrings(v.Opening);
         if(v.Bank is not null) TrimStrings(v.Bank);
-        foreach(var address in v.Addresses) TrimStrings(address);
         foreach(var contact in v.Contacts) TrimStrings(contact);
         v=v with {Code=Upper(v.Code) ?? "",LegalName=Clean(v.LegalName) ?? "",Gstin=Upper(v.Gstin),Pan=Upper(v.Pan),
             Credit=v.Credit with {Currency=Upper(v.Credit.Currency) ?? "INR"},
             Bank=v.Bank is null?null:v.Bank with {Ifsc=Upper(v.Bank.Ifsc)},
-            Addresses=v.Addresses.Select(a=>a with {Label=a.Label ?? "",RecipientName=a.RecipientName ?? "",Line1=a.Line1 ?? "",
-                City=a.City ?? "",PostalCode=a.PostalCode ?? "",Country=Upper(a.Country) ?? "",
-                StateCode=Upper(a.StateCode),StateName=Upper(a.Country)=="IN" && a.StateCode is not null?
-                    CompanyRules.States.GetValueOrDefault(a.StateCode,a.StateName ?? ""):a.StateName}).ToArray(),
+            Addresses=v.Addresses.Select(NormalizeAddress).ToArray(),
             Contacts=v.Contacts.Select(c=>c with {Name=c.Name ?? ""}).ToArray()};
         Lengths(v,"",errors);Lengths(v.Credit,"Credit.",errors);Lengths(v.Opening,"Opening.",errors);
         if(!assignCodeOnSave && !Match(v.Code,"^[A-Z0-9][A-Z0-9/_-]{0,39}$")) errors["Code"]="Use 1–40 letters, digits, slash, underscore or hyphen.";
@@ -130,7 +126,38 @@ public static class CustomerRules
         if(v.Contacts.Count(x=>x.IsPrimary)>1) errors["Contacts"]="Choose at most one primary contact.";
         for(var i=0;i<v.Addresses.Count;i++)
         {
-            var a=v.Addresses[i];var p=$"Addresses[{i}].";Lengths(a,p,errors);
+            ValidateAddressFields(v.Addresses[i],$"Addresses[{i}].",errors);
+        }
+        for(var i=0;i<v.Contacts.Count;i++)
+        {
+            var c=v.Contacts[i];var p=$"Contacts[{i}].";Lengths(c,p,errors);Required(c.Name,p+"Name",errors);
+            if(c.IsPrimary&&!c.IsActive) errors[p+"IsPrimary"]="Primary contact must be active.";
+            Phone(c.Mobile,p+"Mobile",errors);Phone(c.AlternatePhone,p+"AlternatePhone",errors);Phone(c.Whatsapp,p+"Whatsapp",errors);Email(c.Email,p+"Email",errors);
+        }
+        return new(v,errors);
+    }
+
+    private static CustomerAddressDraft NormalizeAddress(CustomerAddressDraft source)
+    {
+        var a=source with {};
+        TrimStrings(a);
+        var country=Upper(a.Country)??"";
+        return a with {Label=a.Label??"",RecipientName=a.RecipientName??"",Line1=a.Line1??"",City=a.City??"",
+            PostalCode=a.PostalCode??"",Country=country,StateCode=Upper(a.StateCode),
+            StateName=country=="IN" && a.StateCode is not null?CompanyRules.States.GetValueOrDefault(a.StateCode,a.StateName??""):a.StateName};
+    }
+
+    public static (CustomerAddressDraft Value,IReadOnlyDictionary<string,string> Errors) ValidateAddress(CustomerAddressDraft source)
+    {
+        var address=NormalizeAddress(source);
+        var errors=new Dictionary<string,string>();
+        ValidateAddressFields(address,"",errors);
+        return (address,errors);
+    }
+
+    private static void ValidateAddressFields(CustomerAddressDraft a,string p,Dictionary<string,string> errors)
+    {
+            Lengths(a,p,errors);
             Required(a.Label,p+"Label",errors);Required(a.RecipientName,p+"RecipientName",errors);
             Required(a.Line1,p+"Line1",errors);Required(a.City,p+"City",errors);
             if(!AddressTypes.Contains(a.AddressType)) errors[p+"AddressType"]="Choose Billing, Shipping or Both.";
@@ -142,14 +169,6 @@ public static class CustomerRules
             if(a.IsDefaultBilling && (!a.IsActive || a.AddressType=="Shipping")) errors[p+"IsDefaultBilling"]="Default billing requires an active Billing/Both address.";
             if(a.IsDefaultShipping && (!a.IsActive || a.AddressType=="Billing")) errors[p+"IsDefaultShipping"]="Default shipping requires an active Shipping/Both address.";
             Phone(a.Mobile,p+"Mobile",errors);Email(a.Email,p+"Email",errors);
-        }
-        for(var i=0;i<v.Contacts.Count;i++)
-        {
-            var c=v.Contacts[i];var p=$"Contacts[{i}].";Lengths(c,p,errors);Required(c.Name,p+"Name",errors);
-            if(c.IsPrimary&&!c.IsActive) errors[p+"IsPrimary"]="Primary contact must be active.";
-            Phone(c.Mobile,p+"Mobile",errors);Phone(c.AlternatePhone,p+"AlternatePhone",errors);Phone(c.Whatsapp,p+"Whatsapp",errors);Email(c.Email,p+"Email",errors);
-        }
-        return new(v,errors);
     }
 }
 

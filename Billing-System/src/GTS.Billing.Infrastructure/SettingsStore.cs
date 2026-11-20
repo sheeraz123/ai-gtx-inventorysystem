@@ -47,6 +47,15 @@ public sealed class SettingsStore(DevelopmentDatabase database,TimeProvider cloc
                 return new(CompanyOutcome.Conflict,Message:"Select the active company and reopen Settings.");
             if(request.Action!=SettingsAction.Runtime && request.Scope!=SettingScope.User &&
                 !access.Allows("Settings.View",company)) return new(CompanyOutcome.Forbidden);
+            if(request.Action==SettingsAction.SalesFormHistory)
+            {
+                if(company is null || request.Scope!=SettingScope.Company || !access.Allows("Settings.InvoiceEdit",company))
+                    return new(CompanyOutcome.Forbidden);
+                var history=await db.Set<AuditEvent>().AsNoTracking().Where(x=>x.CompanyId==company && x.Action=="SalesInvoiceLayoutSaved")
+                    .OrderByDescending(x=>x.OccurredUtc).ThenByDescending(x=>x.Id).Take(50)
+                    .Select(x=>new SalesFormVersion(x.Id,x.OccurredUtc,x.ActorUserId,x.ChangesJson)).ToArrayAsync(ct);
+                return new(CompanyOutcome.Success,CurrentCompanyId:company,SalesFormVersions:history);
+            }
 
             var values=await ReadValues(db,company,actor.UserId,ct);
             if(request.Action==SettingsAction.Runtime)
@@ -72,6 +81,18 @@ public sealed class SettingsStore(DevelopmentDatabase database,TimeProvider cloc
                 var outcome=Save(db,actor.UserId,access,company,request,values);
                 if(outcome.Outcome!=CompanyOutcome.Success) return outcome;
                 await db.SaveChangesAsync(ct);
+                if(request.Scope==SettingScope.Company && request.Changes?.Any(x=>x.Key.StartsWith("SalesForm.",StringComparison.Ordinal))==true)
+                {
+                    var changed=await ReadCompanyAsync(db,company!.Value,ct);
+                    var layout=SalesFormConfiguration.From(changed);
+                    if(layout.HiddenRequiredField() is { } invalid)
+                        return new(CompanyOutcome.InvalidInput,InvalidKey:invalid.Setting.Key,
+                            Message:"Show the payment, transport and notes section before making a field in it required.");
+                    db.Add(new AuditEvent {CompanyId=company,ActorUserId=actor.UserId,ActorKind="User",RecordType="Settings",
+                        RecordId=SalesFormConfiguration.Section,Action="SalesInvoiceLayoutSaved",OccurredUtc=clock.GetUtcNow().UtcDateTime,
+                        ChangesJson=JsonSerializer.Serialize(layout.Rules)});
+                    await db.SaveChangesAsync(ct);
+                }
                 await transaction.CommitAsync(ct);
                 return outcome;
             }
@@ -124,7 +145,8 @@ public sealed class SettingsStore(DevelopmentDatabase database,TimeProvider cloc
             row.Value=change.Text;
             row.UpdatedUtc=clock.GetUtcNow().UtcDateTime;
             row.UpdatedByUserId=actor;
-            var safeValues=definition.Kind is SettingKind.Boolean or SettingKind.Number or SettingKind.Choice;
+            var safeValues=definition.Kind is SettingKind.Boolean or SettingKind.Number or SettingKind.Choice ||
+                definition.Section==SalesFormConfiguration.Section;
             db.Add(new AuditEvent {ActorUserId=actor,ActorKind="User",CompanyId=row.CompanyId,RecordType="Settings",
                 RecordId=change.Key,Action=change.Text is null?"SettingRestored":"SettingUpdated",OccurredUtc=row.UpdatedUtc,
                 ChangesJson=JsonSerializer.Serialize(new {outcome="Success",scope,oldValue=safeValues?previous:null,newValue=safeValues?change.Text:null})});
@@ -185,6 +207,7 @@ public sealed class SettingsStore(DevelopmentDatabase database,TimeProvider cloc
             new(Get(SettingsRegistry.Printer) is {Length:>0} printer?printer:null,Get(SettingsRegistry.Paper),Get(SettingsRegistry.Orientation),
                 settings.Get(SettingsRegistry.Copies),settings.Get(SettingsRegistry.Preview),settings.Get(SettingsRegistry.PageNumbers),
                 settings.Get(SettingsRegistry.PrintTime),margins[0],margins[1],margins[2],margins[3],settings.Get(SettingsRegistry.HeaderSpacing),
-                settings.Get(SettingsRegistry.FooterSpacing),Get(SettingsRegistry.CopyLabel)),Get(SettingsRegistry.InvoiceTemplate));
+            settings.Get(SettingsRegistry.FooterSpacing),Get(SettingsRegistry.CopyLabel)),Get(SettingsRegistry.InvoiceTemplate),
+            SalesFormConfiguration.From(settings));
     }
 }

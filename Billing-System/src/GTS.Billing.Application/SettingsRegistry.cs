@@ -182,8 +182,17 @@ public static partial class SettingsRegistry
         ReorderWarning,LowStockWarning,TaxPlaces,TaxSummary,Printer,Paper,Orientation,Copies,Preview,PageNumbers,PrintTime,CopyLabel,HeaderSpacing,FooterSpacing,InvoiceTemplate
     ];
 
+    public static readonly SettingKey<string> ReviewedSalesGstPlace=Choice("Sales.GstReviewedPlace",Sales,
+        "Pre-reviewed domestic GST place of supply","",Company,
+        ["",..GTS.Billing.Domain.CompanyRules.States.Keys.Order()],InvoiceEdit);
+    public static readonly SettingKey<string> ReviewedSalesGstJurisdiction=Choice("Sales.GstReviewedJurisdiction",Sales,
+        "Pre-reviewed domestic GST jurisdiction","Unresolved",Company,
+        ["Unresolved","IntraState","IntraUnionTerritory","Interstate"],InvoiceEdit);
+
     public static readonly ImmutableArray<SettingDefinition> Definitions=Core.Concat(PrintMargins).Concat(OptionalSections).Concat(GridLayouts)
+        .Concat([ReviewedSalesGstPlace,ReviewedSalesGstJurisdiction])
         .Concat(LoginPage.Keys.Values)
+        .Concat(SalesFormConfiguration.Fields.Select(x=>x.Setting))
         .Concat(CreateLabels()).ToImmutableArray();
     public static readonly ImmutableDictionary<string,SettingDefinition> ByKey=Definitions.ToImmutableDictionary(x=>x.Key,StringComparer.Ordinal);
 

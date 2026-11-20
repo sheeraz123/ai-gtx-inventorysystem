@@ -8,6 +8,13 @@ namespace GTS.Billing.Presentation.Wpf;
 
 public partial class CatalogView : UserControl
 {
+    internal ProductVariantService? Variants {get;set;}
+
+    private void OpenVariants(object sender,RoutedEventArgs e)
+    {
+        if(Variants is not null && DataContext is CatalogViewModel {Products:true,Busy:false,Selected:{ } product})
+            new ProductVariantsDialog(Window.GetWindow(this),product,Variants).ShowDialog();
+    }
     public CatalogView()
     {
         InitializeComponent();

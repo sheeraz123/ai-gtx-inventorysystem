@@ -2,7 +2,7 @@ using GTS.Billing.Domain;
 
 namespace GTS.Billing.Application;
 
-public enum SalesAction { List, Options, View, Preview, Save, Finalize, PrintPreview, Print, PrintToPdf }
+public enum SalesAction { List, Options, View, Preview, Save, Finalize, PrintPreview, Print, PrintToPdf, CustomerAddresses, PrepareFinalization }
 public sealed record SalesChoice(Guid Id,string Label,Guid? Scope=null,Guid? SecondaryScope=null,decimal? Price=null,bool Inclusive=false,
     string? Code=null,string? Sku=null,string? ProductName=null,string? Brand=null,decimal? Mrp=null,
     string? ProductKind=null,string? Hsn=null,decimal? GstRate=null,Guid? TaxClassificationId=null,string? TaxContext=null,
@@ -11,7 +11,7 @@ public sealed record SalesChoice(Guid Id,string Label,Guid? Scope=null,Guid? Sec
     public override string ToString()=>Label;
 }
 public sealed record SalesLineInput(Guid ProductId,Guid? UnitId,decimal Quantity,decimal Price,bool Inclusive,
-    decimal DiscountPercent=0,decimal DiscountAmount=0);
+    decimal DiscountPercent=0,decimal DiscountAmount=0,Guid? ProductVariantId=null);
 public sealed record SalesTransport(string GoodsReceipt, string Vehicle, string Weight, string Carrier,
     string OrderThrough, string PrivateMark, string Document, string PreparedBy);
 public sealed record SalesDraft(DateOnly Date,Guid? YearId=null,Guid? SeriesId=null,Guid? RegistrationId=null,
@@ -59,7 +59,8 @@ public sealed record SalesRow(Guid Id,long Version,DateOnly Date,string? Number,
 public sealed record SalesOptions(IReadOnlyList<SalesChoice> Years,IReadOnlyList<SalesChoice> Series,
     IReadOnlyList<SalesChoice> Registrations,IReadOnlyList<SalesChoice> Customers,IReadOnlyList<SalesChoice> Billing,
     IReadOnlyList<SalesChoice> Shipping,IReadOnlyList<SalesChoice> Products,IReadOnlyList<SalesChoice> Units,
-    string? CompanyName=null,IReadOnlyList<SalesTaxChoice>? TaxChoices=null,bool CanFillMrp=false,bool CanLinkTax=false)
+    string? CompanyName=null,IReadOnlyList<SalesTaxChoice>? TaxChoices=null,bool CanFillMrp=false,bool CanLinkTax=false,
+    IReadOnlyList<SalesVariantChoice>? Variants=null,SalesFormConfiguration? Form=null,string? PreparedBy=null)
 {
     public static bool IncludesDate(SalesChoice year,DateOnly date)=>year.Active && year.From<=date && year.To>=date;
     public SalesChoice? DefaultYear(DateOnly date)=>ChooseDefault(Years.Where(year=>IncludesDate(year,date)));
@@ -73,6 +74,11 @@ public sealed record SalesOptions(IReadOnlyList<SalesChoice> Years,IReadOnlyList
         var preferred=choices.Where(x=>x.Preferred).Take(2).ToArray();
         return preferred.Length==1?preferred[0]:choices.Length==1?choices[0]:null;
     }
+}
+public sealed record SalesVariantChoice(Guid Id,Guid ProductId,string Code,string? Sku,string? Barcode,string Attributes,
+    decimal? Mrp,decimal? SalesRate,bool Active)
+{
+    public string Label=>string.Join(" · ",new[]{Code,Sku,Barcode,Attributes}.Where(x=>!string.IsNullOrWhiteSpace(x)));
 }
 public sealed record SalesTaxChoice(Guid AssignmentId,Guid ClassificationId,string Type,string Code,string Context,
     decimal Rate,DateOnly From,DateOnly? To,bool Selectable)
@@ -88,7 +94,18 @@ public sealed record SalesRequest(SalesAction Action,Guid? Company=null,Guid? Id
 public sealed record SalesResult(CompanyOutcome Outcome,Guid? Company=null,string? Message=null,IReadOnlyList<SalesRow>? Rows=null,
     SalesRow? Row=null,SalesDraft? Draft=null,SalesOptions? Options=null,SalesInvoiceSnapshot? Snapshot=null,string? Confirmation=null,
     FinalizedDocumentNumber? Allocation=null,IReadOnlyList<string>? Audit=null,InvoicePrintModel? PrintModel=null,
-    IReadOnlyList<SalesFieldError>? FieldErrors=null);
+    IReadOnlyList<SalesFieldError>? FieldErrors=null,SalesCustomerAddresses? CustomerAddresses=null,
+    IReadOnlyList<SalesLineEstimate>? PendingGstLines=null);
+
+public sealed record SalesLineEstimate(decimal Gross,decimal Discount,decimal? Taxable,decimal? Tax,decimal? Total);
+
+public readonly record struct SalesPriceAmounts(decimal Gross,decimal Discount)
+{
+    public decimal Net=>Gross-Discount;
+}
+
+public sealed record SalesCustomerAddresses(Guid CustomerId,long Version,string Name,string? Gstin,
+    IReadOnlyList<CustomerAddressDraft> Addresses);
 
 public sealed record SalesFieldError(string Field,string Message,int? Line=null);
 
@@ -113,12 +130,27 @@ public static class SalesCalculation
             Add(nameof(line.DiscountAmount),"Discount amount cannot exceed the line subtotal.");
         return errors;
     }
+    public static SalesPriceAmounts PriceAmounts(SalesLineInput line)
+    {
+        var subtotal=Money(line.Quantity*line.Price);
+        var discount=line.DiscountPercent>0?Money(subtotal*line.DiscountPercent/100m):line.DiscountAmount;
+        return new(subtotal,discount);
+    }
+    public static SalesLineEstimate Estimate(SalesLineInput line,TaxSnapshot rate)
+    {
+        var pricing=PriceAmounts(line);
+        if(rate.Treatment!=TaxTreatment.Taxable)
+            return new(pricing.Gross,pricing.Discount,null,null,null);
+        var ratio=(rate.Total+rate.Cess)/100m;
+        var taxable=Money(line.Inclusive?pricing.Net/(1m+ratio):pricing.Net);
+        var tax=line.Inclusive?pricing.Net-taxable:Money(taxable*rate.Total/100m)+Money(taxable*rate.Cess/100m);
+        return new(pricing.Gross,pricing.Discount,taxable,tax,taxable+tax);
+    }
     public static SalesAmounts? Calculate(SalesLineInput line,AppliedTaxSnapshot rate)
     {
         if(ValidateLine(line).Count>0) return null;
-        var subtotal=Money(line.Quantity*line.Price);
-        var discount=line.DiscountPercent>0?Money(subtotal*line.DiscountPercent/100m):line.DiscountAmount;
-        var net=subtotal-discount;
+        var pricing=PriceAmounts(line);
+        var net=pricing.Net;
         var ratio=(rate.CgstPercentage+rate.SgstPercentage+rate.IgstPercentage+rate.UtgstPercentage+rate.CessPercentage)/100m;
         var taxable=Money(line.Inclusive?net/(1m+ratio):net);
         decimal Component(decimal percent)=>Money(taxable*percent/100m);
@@ -126,7 +158,7 @@ public static class SalesCalculation
         var ut=Component(rate.UtgstPercentage);var cess=Component(rate.CessPercentage);
         var total=taxable+cg+sg+ig+ut+cess;
         var roundOff=line.Inclusive?net-total:0;
-        return new(subtotal,discount,taxable,cg,sg,ig,ut,cess,roundOff,total+roundOff);
+        return new(pricing.Gross,pricing.Discount,taxable,cg,sg,ig,ut,cess,roundOff,total+roundOff);
     }
     public static SalesAmounts Sum(IEnumerable<SalesAmounts> amounts)
     {

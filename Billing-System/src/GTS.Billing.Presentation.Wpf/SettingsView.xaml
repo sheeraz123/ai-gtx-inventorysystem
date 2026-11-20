@@ -34,6 +34,8 @@
      </WrapPanel>
      <WrapPanel>
       <Button Content="{DynamicResource Display.Common.View}" Command="{Binding ViewCommand}"/>
+      <Button Content="Configure invoice fields" Command="{Binding OpenSalesLayoutCommand}"
+        Visibility="{Binding IsSalesLayoutSection,Converter={StaticResource Visible}}" IsEnabled="{Binding CanList}"/>
       <Button Content="Restore section defaults" Command="{Binding RestoreSectionCommand}"/>
       <Button Content="Preview invoice settings" Command="{Binding PreviewCommand}"
         Visibility="{Binding CanPreviewInvoice,Converter={StaticResource Visible}}" IsEnabled="{Binding CanList}"/>

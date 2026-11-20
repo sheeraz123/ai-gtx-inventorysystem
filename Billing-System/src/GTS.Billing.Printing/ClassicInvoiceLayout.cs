@@ -10,7 +10,7 @@ using GTS.Billing.Application;
 
 namespace GTS.Billing.Printing;
 
-internal sealed class ClassicInvoiceLayout(InvoicePrintModel invoice, string? copyLabel)
+internal sealed class ClassicInvoiceLayout(InvoicePrintModel invoice, string? copyLabel, bool preview)
 {
     private static readonly CultureInfo India = CultureInfo.GetCultureInfo("en-IN");
     private static readonly double[] Goods = [4, 29, 8, 7, 8, 8, 5, 7, 10, 7, 10];
@@ -142,9 +142,10 @@ internal sealed class ClassicInvoiceLayout(InvoicePrintModel invoice, string? co
         var product = line.Product;
         var tax = line.Tax;
         return Row(Goods, [line.Number.ToString(India),
-            Lines(product.Name, Join(product.Code, Show("SkuBarcode") ? Field("SKU", product.Sku) : null, product.Brand),
+            Lines(product.Name, Join(Output("ProductCode")?product.Code:null,
+                Output("Sku") && Show("SkuBarcode") ? Field("SKU", product.Sku) : null, Output("Brand")?product.Brand:null),
                 Show("ProductDescription") ? product.Description : null),
-            product.Mrp is { } mrp ? Money(mrp) : "", tax.Rate.Code, Join(DecimalText(line.Input.Quantity), Unit(line)), DecimalText(line.Input.Price),
+            Output("Mrp") && product.Mrp is { } mrp ? Money(mrp) : "", tax.Rate.Code, Join(DecimalText(line.Input.Quantity), Unit(line)), DecimalText(line.Input.Price),
             DecimalText(line.Input.DiscountPercent), Money(line.Amounts.Discount), Money(line.Amounts.Taxable),
             Slab(tax), Money(line.Amounts.Total)], false, 19);
     }
@@ -170,12 +171,13 @@ internal sealed class ClassicInvoiceLayout(InvoicePrintModel invoice, string? co
         var transport = Columns([44, 56], true,
             Text(Lines(Field("G.R. No.", shipping?.GoodsReceipt), Field("Weight", shipping?.Weight),
                 Field("Transport", shipping?.Carrier), Field("Pvt. Mark", shipping?.PrivateMark),
-                Field("Document", shipping?.Document), Field("Reference", header.Reference), Field("Payment terms", header.Terms),
+                Field("Document", shipping?.Document), Field("Reference", Output("Reference")?header.Reference:null),
+                Field("Payment terms", Output("Terms")?header.Terms:null),
                 header.DueDate is { } due ? Field("Due date", due.ToString("dd/MM/yyyy", India)) : null), 10),
             Text(Lines(Field("Vehicle No.", shipping?.Vehicle), Field("Order Through", shipping?.OrderThrough),
                 Field("Prepared By", shipping?.PreparedBy), Field("Customer PO", Join(header.PurchaseOrder, header.PurchaseOrderDate?.ToString("dd/MM/yyyy", India))),
                 Field("Place of supply", header.PlaceOfSupply)), 10));
-        var terms = Text(Lines(Show("Terms")?presentation.Terms:null, header.Notes, Options?.Remarks,
+        var terms = Text(Lines(Show("Terms")?presentation.Terms:null, Output("Notes")?header.Notes:null, Options?.Remarks,
             Show("FooterNotes") ? Options?.FooterNotes : null, Show("FooterNotes") ? presentation.Footer : null), 10);
         var signatureImage = Logo(Show("Signatory") ? presentation.Signature : null);
         signatureImage.Width = 120;
@@ -318,6 +320,7 @@ internal sealed class ClassicInvoiceLayout(InvoicePrintModel invoice, string? co
     private string CompanyName() => string.IsNullOrWhiteSpace(Options?.CompanyName) ? invoice.Seller.Name : Options.CompanyName;
     private string Label(string key, string fallback) => Options?.Captions.GetValueOrDefault("Invoice.Label." + key) ?? fallback;
     private bool Show(string section) => Options?.ShowSection("Invoice.Optional." + section, false) ?? true;
+    private bool Output(string key) => Options?.SalesForm?.ShowOutput(key,preview)??true;
     private static string Unit(FinalSalesLine line) => line.Product.UnitSymbol ?? line.Product.Unit;
     private static string? Field(string label, string? value) => string.IsNullOrWhiteSpace(value) ? null : label + ": " + value;
     private static string Lines(params string?[] values) => string.Join("\n", values.Where(x => !string.IsNullOrWhiteSpace(x)));

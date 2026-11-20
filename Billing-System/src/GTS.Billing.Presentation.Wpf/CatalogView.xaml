@@ -56,6 +56,8 @@
        Visibility="{Binding Products,Converter={StaticResource Visible}}" Padding="10,5"/>
       <Button Content="Edit units and brand" Command="{Binding EditMeasuresCommand}"
        Visibility="{Binding Products,Converter={StaticResource Visible}}" Margin="5,0" Padding="10,5"/>
+      <Button Content="Variants" Click="OpenVariants"
+       Visibility="{Binding Products,Converter={StaticResource Visible}}" Margin="5,0" Padding="10,5"/>
      </WrapPanel>
     </StackPanel>
     <WrapPanel DockPanel.Dock="Bottom" Margin="0,8">

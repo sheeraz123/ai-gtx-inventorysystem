@@ -19,13 +19,14 @@ public sealed class DevelopmentDatabaseMaintenance(DevelopmentDatabase database,
         "20261119000300_ProductCatalog", "20261119000400_InvoiceTaxDefault",
         "20261119000500_CustomerInputFlexibility", "20261119000600_SecurityAdministration",
         "20261119000700_ApplicationSettings", "20261119000800_UnitBrandMaster", TaxCatalogMigration, NumberingMigration,
-        SalesInvoiceMigration
+        SalesInvoiceMigration, ProductVariantMigration
     };
     private sealed record Marker(Guid InstallationId,string DatabasePath,string State);
     private const string UnitBrandMigration="20261119000800_UnitBrandMaster";
     private const string TaxCatalogMigration="20261119000900_TaxCatalog";
     private const string NumberingMigration="20261119001000_FinancialYearNumbering";
     private const string SalesInvoiceMigration="20261119001100_SalesInvoiceEntry";
+    private const string ProductVariantMigration="20261120000100_ProductVariants";
     private sealed record BackupEvidence(string Status,string BackupSha256,string MarkerSha256,
         string[] ApprovedMigrations,bool PlaintextDevelopmentOnly);
 
@@ -135,6 +136,9 @@ public sealed class DevelopmentDatabaseMaintenance(DevelopmentDatabase database,
             catalogAdditions.AddRange([("financialyear","Financial Year Master"),("documentseries","Document Series Master")]);
         if(pending.Contains(SalesInvoiceMigration,StringComparer.Ordinal))
             catalogAdditions.Add(("invoice","Sales Invoice"));
+        if(pending.Contains(ProductVariantMigration,StringComparer.Ordinal))
+            catalogAdditions.AddRange([("product-variants","Product Variants"),("product-sizes","Size Master"),
+                ("product-colors","Color Master"),("variant-attributes","Variant Attributes")]);
         if(catalogAdditions.Count>0)
         {
             await using var copy=Connection(backup,SqliteOpenMode.ReadOnly);
