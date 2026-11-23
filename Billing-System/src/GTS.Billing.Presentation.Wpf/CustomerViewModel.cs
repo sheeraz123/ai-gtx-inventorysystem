@@ -34,6 +34,25 @@ public sealed class CustomerViewModel : ObservableObject,IDisposable
         ("",GeneralFields),("",TaxFields),("Credit.",CreditFields),("Opening.",OpeningFields),("Bank.",BankFields),("",NotesFields)};
     public event Action? SessionExpired;
     public Func<IReadOnlyList<CustomerDuplicateWarning>,bool>? ConfirmDuplicates {get;set;}
+    public Func<bool>? ConfirmShippingReplacement {get;set;}
+    public bool GraftexLayout=>ConfigurationModule.GraftexCustomer(SettingsDisplay.Current);
+    public IReadOnlyList<CustomerField> GraftexGeneralLeft=>GeneralFields
+        .Where(item=>item.Name is not ("Mobile" or "Email" or "Status")).ToArray();
+    public IEnumerable<CustomerField> GraftexGeneralRight=>GeneralFields.Where(item=>item.Name is "Mobile" or "Email" or "Status");
+    public IEnumerable<CustomerField> GraftexBankLeft=>BankFields.Where(item=>item.Name is "BankName" or "AccountNumber" or "AccountHolder");
+    public IEnumerable<CustomerField> GraftexBankRight=>BankFields.Where(item=>item.Name is not ("BankName" or "AccountNumber" or "AccountHolder"));
+    public bool StandardBilling=>!GraftexLayout && ShowTab("Addresses");
+    public bool CombinedAddresses=>GraftexLayout && ShowTab("Addresses");
+    public bool ShowTax=>ShowTab("Tax");
+    public bool ShowBank=>CanSeeBank && ShowTab("Bank");
+    public bool ShowContacts=>ShowTab("Contacts");
+    public bool ShowCredit=>ShowTab("Credit");
+    public bool ShowOpening=>ShowTab("Opening");
+    public bool ShowNotes=>ShowTab("Notes");
+    private bool ShowTab(string name)=>ConfigurationModule.CustomerTabVisible(SettingsDisplay.Current,name);
+    public IRelayCommand CopyBillingCommand {get;}
+    public CustomerEntryEditor? CopySource {get;set;}
+    public CustomerEntryEditor? CopyDestination {get;set;}
     private CustomerCompanyContext? company;
     public string CompanyCaption=>company is null?"No company selected — select an active company in Company Master.":"Customers for "+company.Name+" ("+company.Code+")";
     private string message="";
@@ -117,6 +136,8 @@ public sealed class CustomerViewModel : ObservableObject,IDisposable
             CustomerEditorFields.Text("GroupLabel","Customer group (optional label)"),CustomerEditorFields.Text("CategoryLabel","Customer classification (not Product Category)"),
             CustomerEditorFields.Choice("Status","Status *",CustomerRules.Statuses),CustomerEditorFields.Date("SinceDate","Customer since"),
             CustomerEditorFields.Text("Mobile","General mobile"),CustomerEditorFields.Text("Email","General email")];
+        foreach(var field in GeneralFields)
+            field.UseCustomerConfiguration=ConfigurationModule.CustomerFieldCatalog.Any(item=>item.Key==field.Name);
         TaxFields=[CustomerEditorFields.Choice("RegistrationType","GST registration type *",CustomerRules.Registrations),
             CustomerEditorFields.Text("Gstin","GSTIN"),CustomerEditorFields.Text("Pan","PAN"),CustomerEditorFields.Text("GstLegalName","Legal name as per GST"),
             CustomerEditorFields.State("GstStateCode","GST registered state / UT",true),CustomerEditorFields.Date("GstEffectiveDate","Registration effective date"),
@@ -143,6 +164,11 @@ public sealed class CustomerViewModel : ObservableObject,IDisposable
             ()=>EditorOpen&&ViewOnly&&editing is not null&&!Busy&&!lifetime.IsStopping&&!disposed&&Can("Edit"));
         StatusCommand=new AsyncRelayCommand<string>(ChangeStatus, _=>CanBrowse&&Selected is not null&&Can("StatusChange"));
         SaveCommand=new AsyncRelayCommand(Save,()=>CanEdit);
+        CopyBillingCommand=new RelayCommand(CopyBilling,()=>CanEdit && GraftexLayout);
+        foreach(var (prefix,fields) in Groups)
+            foreach(var field in fields) field.SupplementKey=prefix+field.Name;
+        System.Windows.WeakEventManager<SettingsDisplay,EventArgs>.AddHandler(SettingsDisplay.Instance,
+            nameof(SettingsDisplay.Changed),(_,_)=>NotifyProfile());
         PreviousPageCommand=new AsyncRelayCommand(()=>MovePage(-1),()=>CanBrowse&&page>1);
         NextPageCommand=new AsyncRelayCommand(()=>MovePage(1),()=>CanBrowse&&page*SettingsDisplay.Current.Get(SettingsRegistry.PageSize)<total);
         AddBillingCommand=new RelayCommand(()=>AddAddress("Billing"),()=>CanEdit);
@@ -156,8 +182,9 @@ public sealed class CustomerViewModel : ObservableObject,IDisposable
     {
         OnPropertyChanged(nameof(CanEdit));OnPropertyChanged(nameof(CanCancel));
         OnPropertyChanged(nameof(CanEditCredit));OnPropertyChanged(nameof(CanEditBank));OnPropertyChanged(nameof(CanSeeBank));
+        OnPropertyChanged(nameof(ShowBank));CopyBillingCommand?.NotifyCanExecuteChanged();
         GeneralFields.Single(x=>x.Name=="Status").ReadOnly=!Can("StatusChange");
-        NotesFields.Single(x=>x.Name=="InternalRemarks").ReadOnly=!Can("InternalNotes");
+        NotesFields.Single(x=>x.Name=="InternalRemarks").ReadOnly=!access.IsSuperAdmin;
         RefreshCommand?.NotifyCanExecuteChanged();AddCommand?.NotifyCanExecuteChanged();EditCommand?.NotifyCanExecuteChanged();
         ViewCommand?.NotifyCanExecuteChanged();EditViewedCommand?.NotifyCanExecuteChanged();StatusCommand?.NotifyCanExecuteChanged();SaveCommand?.NotifyCanExecuteChanged();
         PreviousPageCommand?.NotifyCanExecuteChanged();NextPageCommand?.NotifyCanExecuteChanged();AddBillingCommand?.NotifyCanExecuteChanged();
@@ -300,12 +327,46 @@ public sealed class CustomerViewModel : ObservableObject,IDisposable
         finally {changingDefaults=false;}
         if(changed.Name=="AddressType") NotifyAddresses();
     }
+    private void NotifyProfile()
+    {
+        foreach(var property in new[]{nameof(GraftexLayout),nameof(StandardBilling),nameof(CombinedAddresses),nameof(ShowTax),
+            nameof(ShowBank),nameof(ShowContacts),nameof(ShowCredit),nameof(ShowOpening),nameof(ShowNotes)})
+            OnPropertyChanged(property);
+        CopyBillingCommand.NotifyCanExecuteChanged();
+    }
     private void NotifyAddresses(){OnPropertyChanged(nameof(BillingAddresses));OnPropertyChanged(nameof(ShippingAddresses));}
+    private void CopyBilling()
+    {
+        if(!CanEdit || !GraftexLayout) return;
+        var shipping=ShippingAddresses.Where(entry=>entry.Field("IsActive").Checked).ToArray();
+        var billing=BillingAddresses.Where(entry=>entry.Field("IsActive").Checked).ToArray();
+        var source=billing.Contains(CopySource)?CopySource:billing.Length==1?billing[0]:null;
+        if(source is null){Message="Select a billing address to copy.";return;}
+        var destination=shipping.Contains(CopyDestination)?CopyDestination:shipping.Length==1?shipping[0]:null;
+        if(destination is null && shipping.Length>1){Message="Select the shipping address to replace.";return;}
+        if(destination is not null && ConfirmShippingReplacement?.Invoke()!=true) return;
+        if(destination is null || destination.Field("AddressType").Text=="Both")
+        {
+            var original=destination;
+            destination=new CustomerEntryEditor(new CustomerAddressDraft {AddressType="Shipping",Label="Shipping address"},RetireEntry);
+            Attach(destination);
+            if(original?.Field("IsDefaultShipping").Checked==true || shipping.Length==0)
+                destination.Field("IsDefaultShipping").Checked=true;
+        }
+        foreach(var field in source.Fields.Where(field=>field.Name is not ("Label" or "AddressType" or "IsActive" or "IsDefaultBilling" or "IsDefaultShipping")))
+            destination.Field(field.Name).Text=field.Text;
+        Dirty=true;
+        NotifyAddresses();
+        Message="Billing address copied to the shipping draft.";
+    }
     private void AddAddress(string type)
     {
         if(!CanEdit) return;
+        var role=type=="Billing"?BillingAddresses:ShippingAddresses;
+        var first=GraftexLayout && !role.Any(entry=>entry.Field("IsActive").Checked);
         Attach(new CustomerEntryEditor(new CustomerAddressDraft {AddressType=type,Label=type+" address",
-            RecipientName=GeneralFields.Single(x=>x.Name=="LegalName").Text},RetireEntry));
+            RecipientName=GeneralFields.Single(x=>x.Name=="LegalName").Text,
+            IsDefaultBilling=first && type=="Billing",IsDefaultShipping=first && type=="Shipping"},RetireEntry));
         Dirty=true;NotifyAddresses();
     }
     private void AddContact(){if(!CanEdit)return;Attach(new CustomerEntryEditor(new CustomerContactDraft(),RetireEntry));Dirty=true;}

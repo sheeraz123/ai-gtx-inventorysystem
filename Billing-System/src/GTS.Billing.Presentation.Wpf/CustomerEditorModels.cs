@@ -2,6 +2,7 @@ using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GTS.Billing.Domain;
+using GTS.Billing.Application;
 
 namespace GTS.Billing.Presentation.Wpf;
 
@@ -15,14 +16,24 @@ public sealed class CustomerField : ObservableObject
         System.Windows.WeakEventManager<SettingsDisplay,EventArgs>.AddHandler(SettingsDisplay.Instance,nameof(SettingsDisplay.Changed),RefreshCaption);
     }
     public string Name {get;}
-    public string Label=>SettingsDisplay.Field(defaultLabel);
-    private void RefreshCaption(object? sender,EventArgs e)=>OnPropertyChanged(nameof(Label));
+    internal bool UseCustomerConfiguration {get;set;}
+    internal string? ProductCaption {get;set;}
+    internal string? SupplementKey {get;set;}
+    private string ConfiguredMode=>UseCustomerConfiguration?ConfigurationModule.CustomerMode(SettingsDisplay.Current,Name):"Optional";
+    public bool IsShown=>ConfiguredMode!="Hidden" &&
+        (SupplementKey is null || ConfigurationModule.CustomerSupplementVisible(SettingsDisplay.Current,SupplementKey));
+    public bool IsInputLocked=>ReadOnly || ConfiguredMode=="Read-only";
+    public string Label=>ProductCaption ?? (UseCustomerConfiguration?
+        ConfigurationModule.CustomerCaption(SettingsDisplay.Current,Name,SettingsDisplay.Field(defaultLabel)):
+        SettingsDisplay.Field(defaultLabel))+(ConfiguredMode=="Required"?" *":"");
+    private void RefreshCaption(object? sender,EventArgs e)
+    { OnPropertyChanged(nameof(Label));OnPropertyChanged(nameof(IsShown));OnPropertyChanged(nameof(IsInputLocked)); }
     public bool IsVisible { get; set; }=true;
     private bool readOnly;
     public bool ReadOnly
     {
         get=>readOnly;
-        set { if(SetProperty(ref readOnly,value)) OnPropertyChanged(nameof(CanInput)); }
+        set { if(SetProperty(ref readOnly,value)){OnPropertyChanged(nameof(CanInput));OnPropertyChanged(nameof(IsInputLocked));} }
     }
     public bool CanInput=>!ReadOnly;
     public string Kind {get;}
@@ -30,7 +41,7 @@ public sealed class CustomerField : ObservableObject
     public bool IsDate=>Kind=="Date";
     public bool IsCheck=>Kind=="Check";
     public bool IsChoice=>Kind=="Choice";
-    public bool IsSearchableChoice=>IsChoice && Name is "StateCode" or "GstStateCode" or "Currency";
+    public bool IsSearchableChoice=>IsChoice && Name is "StateCode" or "GstStateCode" or "Currency" or "BaseUnit";
     public bool IsFixedChoice=>IsChoice && !IsSearchableChoice;
     public IReadOnlyList<CustomerChoice> Choices {get;}
     private string text="";
@@ -52,6 +63,7 @@ public sealed class CustomerField : ObservableObject
 public sealed record CustomerFieldSection(string Title,IReadOnlyList<CustomerField> Fields)
 {
     public string Caption=>SettingsDisplay.Section(Title);
+    public bool HasManyFields=>Fields.Count>2;
 }
 public static class CustomerEditorFields
 {

@@ -38,16 +38,16 @@
    <Menu Background="Transparent" Foreground="{DynamicResource Palette.Text}" AutomationProperties.Name="Billing navigation">
     <MenuItem Header="{DynamicResource Display.Navigation.Dashboard}" Style="{StaticResource ShellMenuHeader}"
      Command="{Binding NavigateCommand}" CommandParameter="{Binding Dashboard}"/>
-    <MenuItem Header="{DynamicResource Display.Navigation.Master}" Style="{StaticResource ShellMenuHeader}" ItemsSource="{Binding MasterMenu}"
+    <MenuItem Header="{Binding MasterCaption}" Style="{StaticResource ShellMenuHeader}" ItemsSource="{Binding MasterMenu}"
      Visibility="{Binding HasMasters,Converter={StaticResource Visible}}"
      ItemContainerStyle="{StaticResource ShellSubmenuItem}" MouseEnter="OpenNavigationSubmenu"/>
-    <MenuItem Header="{DynamicResource Display.Navigation.Transactions}" Style="{StaticResource ShellMenuHeader}" ItemsSource="{Binding TransactionMenu}"
+    <MenuItem Header="{Binding TransactionCaption}" Style="{StaticResource ShellMenuHeader}" ItemsSource="{Binding TransactionMenu}"
      Visibility="{Binding HasTransactions,Converter={StaticResource Visible}}"
      ItemContainerStyle="{StaticResource ShellSubmenuItem}" MouseEnter="OpenNavigationSubmenu"/>
-    <MenuItem Header="{DynamicResource Display.Navigation.Reports}" Style="{StaticResource ShellMenuHeader}"
+    <MenuItem Header="{Binding ReportsCaption}" Style="{StaticResource ShellMenuHeader}"
      Visibility="{Binding CanSeeReports,Converter={StaticResource Visible}}"
      Command="{Binding NavigateCommand}" CommandParameter="{Binding Reports}"/>
-    <MenuItem Header="{DynamicResource Display.Navigation.Administration}" Style="{StaticResource ShellMenuHeader}" ItemsSource="{Binding AdministrationMenu}"
+    <MenuItem Header="{Binding AdministrationCaption}" Style="{StaticResource ShellMenuHeader}" ItemsSource="{Binding AdministrationMenu}"
      Visibility="{Binding HasAdministration,Converter={StaticResource Visible}}"
      ItemContainerStyle="{StaticResource ShellSubmenuItem}" MouseEnter="OpenNavigationSubmenu"/>
    </Menu>

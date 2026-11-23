@@ -43,7 +43,7 @@
   <DataGrid ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}" IsReadOnly="True" AutoGenerateColumns="False"
     CanUserAddRows="False" SelectionMode="Single" MinRowHeight="32" Background="{DynamicResource Palette.Surface}"
     RowBackground="{DynamicResource Palette.Surface}" Foreground="{DynamicResource Palette.Text}"
-    local:MasterGridInteraction.ViewRowCommand="{Binding ViewCommand}">
+    local:MasterGridInteraction.ViewRowCommand="{Binding ViewCommand}" local:SettingsDisplay.GridId="SalesInvoices">
    <DataGrid.Columns>
     <DataGridTextColumn Header="Invoice number" local:SettingsDisplay.LabelKey="Sales.Number" Binding="{Binding Number}" Width="130"/>
     <DataGridTextColumn Header="Invoice date" local:SettingsDisplay.LabelKey="Sales.Date" Binding="{Binding Date,StringFormat=d}" Width="110"/>

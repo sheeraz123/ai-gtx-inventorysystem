@@ -13,7 +13,11 @@
     <ComboBox ItemsSource="{Binding Choices}" DisplayMemberPath="Label" SelectedValuePath="Key"
       SelectedValue="{Binding Text,Mode=TwoWay,UpdateSourceTrigger=PropertyChanged}" MinHeight="30"
       IsTextSearchEnabled="True" TextSearch.TextPath="Label" AutomationProperties.Name="{Binding Label}" IsEnabled="{Binding CanInput}"
-      Visibility="{Binding IsChoice,Converter={StaticResource Visible}}"/>
+      Visibility="{Binding IsFixedChoice,Converter={StaticResource Visible}}"/>
+    <local:SearchableComboBox SearchItemsSource="{Binding Choices}" DisplayMemberPath="Label" SelectedValuePath="Key"
+      SelectedValue="{Binding Text,Mode=TwoWay,UpdateSourceTrigger=PropertyChanged}" MinHeight="30"
+      AutomationProperties.Name="{Binding Label}" IsEnabled="{Binding CanInput}"
+      Visibility="{Binding IsSearchableChoice,Converter={StaticResource Visible}}"/>
     <DatePicker SelectedDate="{Binding DateValue,Mode=TwoWay,UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CanInput}"
       AutomationProperties.Name="{Binding Label}" Visibility="{Binding IsDate,Converter={StaticResource Visible}}"/>
     <CheckBox IsChecked="{Binding Checked,Mode=TwoWay,UpdateSourceTrigger=PropertyChanged}" Content="{Binding Label}" IsEnabled="{Binding CanInput}"
@@ -136,14 +140,18 @@
              <Style.Triggers><DataTrigger Binding="{Binding Title}" Value="GST &amp; Tax"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers>
             </Style></StackPanel.Style>
             <StackPanel DataContext="{Binding DataContext,RelativeSource={RelativeSource AncestorType=UserControl}}">
-             <TextBlock Text="HSN / SAC classification" FontWeight="SemiBold" Margin="0,0,0,4"/>
+             <TextBlock Text="{Binding TaxClassificationCaption}" FontWeight="SemiBold" Margin="0,0,0,4"
+              Visibility="{Binding ShowTaxClassification,Converter={StaticResource Visible}}"/>
              <local:SearchableComboBox SearchItemsSource="{Binding TaxChoices}" SelectedItem="{Binding TaxClassification}"
-              DisplayMemberPath="Label" IsEnabled="{Binding CanEditTax}" AutomationProperties.Name="HSN or SAC classification"/>
-             <TextBlock Text="GST rate context" FontWeight="SemiBold" Margin="0,8,0,4"/>
+              DisplayMemberPath="Label" IsEnabled="{Binding CanEditTaxClassification}" AutomationProperties.Name="HSN or SAC classification"
+              Visibility="{Binding ShowTaxClassification,Converter={StaticResource Visible}}"/>
+             <TextBlock Text="{Binding TaxContextCaption}" FontWeight="SemiBold" Margin="0,8,0,4"
+              Visibility="{Binding ShowTaxContext,Converter={StaticResource Visible}}"/>
              <local:SearchableComboBox SearchItemsSource="{Binding TaxContexts}" SelectedItem="{Binding TaxContext}"
-              IsEnabled="{Binding CanEditTax}" AutomationProperties.Name="GST rate context"/>
+              IsEnabled="{Binding CanEditTaxContext}" AutomationProperties.Name="GST rate context"
+              Visibility="{Binding ShowTaxContext,Converter={StaticResource Visible}}"/>
              <local:NoticeBanner Text="{Binding TaxMessage}" Margin="0,4,0,8"/>
-             <WrapPanel Margin="0,0,0,6">
+             <WrapPanel Margin="0,0,0,6" Visibility="{Binding ShowTaxPreviewDate,Converter={StaticResource Visible}}">
               <DatePicker SelectedDate="{Binding TaxDate}" AutomationProperties.Name="Preview transaction date" Width="140"/>
               <Button Content="Preview applicable rate" Command="{Binding PreviewTaxCommand}" Margin="8,0,0,0" Padding="8,4"/>
              </WrapPanel>
@@ -152,7 +160,15 @@
             </StackPanel>
            </StackPanel>
            <ItemsControl ItemsSource="{Binding Fields}"
-            IsEnabled="{Binding DataContext.CanSave,RelativeSource={RelativeSource AncestorType=UserControl}}"/>
+            IsEnabled="{Binding DataContext.CanSave,RelativeSource={RelativeSource AncestorType=UserControl}}">
+            <ItemsControl.Style><Style TargetType="ItemsControl"><Style.Triggers>
+             <DataTrigger Binding="{Binding HasManyFields}" Value="True">
+              <Setter Property="ItemsPanel"><Setter.Value>
+               <ItemsPanelTemplate><WrapPanel ItemWidth="285"/></ItemsPanelTemplate>
+              </Setter.Value></Setter>
+             </DataTrigger>
+            </Style.Triggers></Style></ItemsControl.Style>
+           </ItemsControl>
           </StackPanel>
          </DataTemplate></TabControl.ContentTemplate>
         </TabControl>

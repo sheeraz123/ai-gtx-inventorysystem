@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 
 namespace GTS.Billing.Infrastructure;
 
-public sealed class SalesInvoiceStore(DevelopmentDatabase database,ILogger<SalesInvoiceStore> logger) : ISalesInvoiceStore
+public sealed class SalesInvoiceStore(DevelopmentDatabase database,ILogger<SalesInvoiceStore> logger,SettingsStore? settings=null) : ISalesInvoiceStore
 {
     public async Task<SalesResult> ExecuteAsync(SalesRequest request,AuthenticatedIdentity actor,CancellationToken ct)
     {
@@ -34,7 +34,7 @@ public sealed class SalesInvoiceStore(DevelopmentDatabase database,ILogger<Sales
             bool Granted(string permission)=>admin || grants!.Contains(permission);
             var canEditProduct=Granted("Product.View") && Granted("Product.Edit");
             var work=new CompanySalesInvoices(db,company,actor.UserId,actor.Username,canEditProduct && Granted("Product.PricingEdit"),
-                canEditProduct && Granted("GstRate.Assign"));
+                canEditProduct && Granted("GstRate.Assign"),settings);
             var result=await work.RunAsync(request,ct);
             if(request.Action==SalesAction.Finalize ||
                 request.Action is SalesAction.Save or SalesAction.Print or SalesAction.PrintToPdf && result.Outcome==CompanyOutcome.Success)
@@ -62,7 +62,8 @@ public sealed class SalesInvoiceStore(DevelopmentDatabase database,ILogger<Sales
     internal static SalesResult Invalid(string message)=>new(CompanyOutcome.InvalidInput,Message:message);
 }
 
-internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,Guid actor,string username,bool canFillMrp,bool canLinkTax)
+internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,Guid actor,string username,bool canFillMrp,bool canLinkTax,
+    SettingsStore? settings)
 {
     private IQueryable<SalesInvoice> Invoices=>db.Set<SalesInvoice>().Where(x=>x.CompanyId==company.Id);
     private IQueryable<FinancialYear> Years=>db.Set<FinancialYear>().Where(x=>x.CompanyId==company.Id);
@@ -159,7 +160,9 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
             var completion=await StageProductCompletionsAsync(draft,completions,ct);
             if(completion.Outcome!=CompanyOutcome.Success) return completion;
         }
-        var preview=await CalculateAsync(draft,ct,gstPending);
+        var quantityPolicy=settings is not null && request.Action is SalesAction.Save or SalesAction.Preview
+            ? await settings.EffectiveGeneralAsync(db,company.Id,ct):null;
+        var preview=await CalculateAsync(draft,ct,gstPending,quantityPolicy,row is null?null:ReadDraft(row).Lines);
         if(request.Action==SalesAction.Preview) return preview;
         if(finalization && preview.Snapshot is { } reviewed && reviewed.Lines.Any(x=>x.Tax.Rate.Treatment!=TaxTreatment.Taxable))
             return Reject("This workflow finalizes standard taxable lines only. Review the product tax treatment.");
@@ -396,7 +399,8 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
     private static SalesResult FieldError(string field,string message,int? line=null)=>
         Invalid(message) with {FieldErrors=[new(field,message,line)]};
 
-    private async Task<SalesResult> CalculateAsync(SalesDraft draft,CancellationToken ct,bool gstPending=false)
+    private async Task<SalesResult> CalculateAsync(SalesDraft draft,CancellationToken ct,bool gstPending=false,
+        ResolvedSettings? quantityPolicy=null,IReadOnlyList<SalesLineInput>? originalLines=null)
     {
         if(draft.RegistrationId is null || draft.CustomerId is null ||
             draft.Lines is not {Count:>0}) return Invalid("Choose a supplier registration, customer and at least one product.");
@@ -460,6 +464,12 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
             }
             if(decimal.Round(line.Quantity,product.QuantityPrecision)!=line.Quantity)
                 return FieldError(nameof(line.Quantity),"Quantity exceeds the precision of the selected unit.",index);
+            var original=originalLines?.ElementAtOrDefault(index-1);
+            if(quantityPolicy is not null && ConfigurationModule.UnitPrecision(quantityPolicy,product.Unit) is int precision &&
+                (original is null || original.ProductId!=line.ProductId || original.UnitId!=line.UnitId ||
+                    original.ProductVariantId!=line.ProductVariantId || original.Quantity!=line.Quantity) &&
+                decimal.Round(line.Quantity,precision)!=line.Quantity)
+                return FieldError(nameof(line.Quantity),$"{product.Unit} allows up to {precision} decimal places in this company.",index);
             var validation=SalesCalculation.ValidateLine(line,index);
             if(validation.Count>0) return Invalid(validation[0].Message) with {FieldErrors=validation};
             if(gstPending)

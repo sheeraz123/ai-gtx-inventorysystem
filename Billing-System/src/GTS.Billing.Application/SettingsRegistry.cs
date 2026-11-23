@@ -193,6 +193,7 @@ public static partial class SettingsRegistry
         .Concat([ReviewedSalesGstPlace,ReviewedSalesGstJurisdiction])
         .Concat(LoginPage.Keys.Values)
         .Concat(SalesFormConfiguration.Fields.Select(x=>x.Setting))
+        .Concat(ConfigurationModule.Definitions)
         .Concat(CreateLabels()).ToImmutableArray();
     public static readonly ImmutableDictionary<string,SettingDefinition> ByKey=Definitions.ToImmutableDictionary(x=>x.Key,StringComparer.Ordinal);
 

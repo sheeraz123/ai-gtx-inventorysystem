@@ -34,6 +34,7 @@ public sealed partial class CatalogViewModel(ProductCatalogService service, Unit
         Notify();
     }
     private IReadOnlyList<CatalogCategory> categoryOptions = [];
+    private IReadOnlyList<CustomerChoice> unitOptions=[];
 
     public Action? SessionExpired { get; set; }
     public Func<string,bool>? ConfirmDuplicate { get; set; }
@@ -46,8 +47,18 @@ public sealed partial class CatalogViewModel(ProductCatalogService service, Unit
     public bool CanAdd => CanBrowse && Can("Create");
     public bool CanSave => EditorOpen && !ViewOnly && !Busy && company is not null && Can(original is null?"Create":"Edit");
     public bool CanEditViewed => ViewOnly && EditorOpen && !Busy && Can("Edit");
-    public bool ShowImage => Products && EditorOpen && (!ViewOnly || SettingsDisplay.Current.Get(SettingsRegistry.ProductImage));
+    public bool ShowImage => Products && EditorOpen && ProductFieldVisible("Image", !ViewOnly || SettingsDisplay.Current.Get(SettingsRegistry.ProductImage));
+    public bool ShowCategory => !Products || ProductFormConfiguration.TabVisible(SettingsDisplay.Current, "General") &&
+        ProductFieldVisible("CategoryId");
+    public bool ShowTaxClassification => ProductFieldVisible("TaxClassification");
+    public bool ShowTaxContext => ProductFieldVisible("TaxContext");
+    public bool ShowTaxPreviewDate => ProductFieldVisible("TaxPreviewDate");
     public bool CanEditTax => Products && CanSave && tax is not null && access.Allows("GstRate.Assign");
+    public bool CanEditTaxClassification=>CanEditTax && ProductFormConfiguration.Mode(SettingsDisplay.Current,"TaxClassification")!="Read-only";
+    public bool CanEditTaxContext=>CanEditTax && ProductFormConfiguration.Mode(SettingsDisplay.Current,"TaxContext")!="Read-only";
+    public string TaxClassificationCaption=>ProductFormConfiguration.Caption(SettingsDisplay.Current,"TaxClassification",
+        LegacyProduct?"HSN Code":"HSN / SAC classification");
+    public string TaxContextCaption=>ProductFormConfiguration.Caption(SettingsDisplay.Current,"TaxContext",LegacyProduct?"Tax / GST Rate":"GST rate context");
     public bool CanPreviewTax => Products && EditorOpen && !Busy && TaxClassification is {Id:var id} && id!=Guid.Empty &&
         !string.IsNullOrWhiteSpace(TaxContext) && TaxDate.HasValue;
     public IReadOnlyList<string> Kinds { get; } = ["", "Goods", "Services"];
@@ -82,7 +93,11 @@ public sealed partial class CatalogViewModel(ProductCatalogService service, Unit
     [ObservableProperty] private bool _dirty;
     [ObservableProperty] private ImageSource? _preview;
 
-    private IEnumerable<CustomerField> Fields => Sections.SelectMany(x => x.Fields);
+    private IReadOnlyList<CustomerFieldSection> allSections = [];
+    private IEnumerable<CustomerField> Fields => allSections.SelectMany(x => x.Fields);
+    private bool LegacyProduct => Products && ProductFormConfiguration.IsLegacy(SettingsDisplay.Current);
+    private bool ProductFieldVisible(string field, bool standardDefault = true) =>
+        ProductFormConfiguration.FieldVisible(SettingsDisplay.Current, field, standardDefault);
     partial void OnBusyChanged(bool value) => Notify();
     partial void OnSelectedChanged(CatalogRow? value) => Notify();
     partial void OnEditorOpenChanged(bool value) => Notify();
@@ -106,6 +121,8 @@ public sealed partial class CatalogViewModel(ProductCatalogService service, Unit
         MarkDirty();
         TaxRate="";
         Notify();
+        if (TaxContext is not null)
+            _=RunAsync(RefreshTaxPreviewAsync);
     }
     partial void OnTaxDateChanged(DateTime? value)
     {
@@ -138,6 +155,7 @@ public sealed partial class CatalogViewModel(ProductCatalogService service, Unit
         EditMeasuresCommand.NotifyCanExecuteChanged();
         PreviewTaxCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(CanEditTax));
+        OnPropertyChanged(nameof(CanEditTaxClassification));OnPropertyChanged(nameof(CanEditTaxContext));
         NextCommand.NotifyCanExecuteChanged();
         PreviousCommand.NotifyCanExecuteChanged();
     }
@@ -154,6 +172,7 @@ public sealed partial class CatalogViewModel(ProductCatalogService service, Unit
         Rows=[];
         Selected=null;
         categoryOptions=[];
+        unitOptions=[];
         FilterChoices=[];
         BrandChoices=[];
         BrandFilter=null;
@@ -217,6 +236,13 @@ public sealed partial class CatalogViewModel(ProductCatalogService service, Unit
         };
         foreach (var field in Fields) field.Error=response.Errors?.GetValueOrDefault(field.Name) ?? "";
         LinkError=response.Errors?.GetValueOrDefault(Products ? "CategoryId" : "ParentId") ?? "";
+        if (Sections.FirstOrDefault(section => section.Fields.Any(field => field.Error.Length > 0)) is { } invalidSection)
+            EditorSection=invalidSection;
+        else if (LinkError.Length > 0 && Products && ShowCategory)
+            EditorSection=Sections.FirstOrDefault(section => section.Title=="General") ?? EditorSection;
+        if (response.Errors?.FirstOrDefault(error => Fields.Any(field => field.Name==error.Key && !field.IsVisible))
+            is { Value: { } hiddenError })
+            Message=hiddenError;
         if (response.Errors?.TryGetValue("Image", out var image) == true) Message=image;
         if(response.Errors?.TryGetValue("TaxSelection",out var problem)==true)
         {
@@ -239,6 +265,7 @@ public sealed partial class CatalogViewModel(ProductCatalogService service, Unit
         if (!Accept(response)) { company=null; Rows=[]; Selected=null; return; }
         company=response.Company;
         categoryOptions=response.Categories!;
+        unitOptions=(response.Units??[]).Select(unit=>new CustomerChoice(unit.Code,$"{unit.Code} — {unit.Name}")).ToArray();
         loading=true;
         var filterId=CategoryFilter?.Id;
         FilterChoices=[new(null,"All categories",true), ..categoryOptions];
@@ -318,12 +345,15 @@ public sealed partial class CatalogViewModel(ProductCatalogService service, Unit
             TaxChoices=originalTaxClassification is null?[new(Guid.Empty,"— Select HSN or SAC —"),..available]:available;
             TaxClassification=TaxChoices.FirstOrDefault(x=>x.Id==selected);
             TaxContexts=response.Contexts??[];
-            TaxContext=TaxContexts.FirstOrDefault(x=>x==priorContext);
+            TaxContext=TaxContexts.FirstOrDefault(x=>x==priorContext) ??
+                (!initialize && TaxContexts.Count==1 ? TaxContexts[0] : null);
         }
         finally {updatingTax=false;}
-        TaxMessage=SelectedTaxId is null?"Choose a master classification to configure this product for invoices.":
+        TaxMessage=TaxChoices.All(choice=>choice.Id==Guid.Empty)?
+            $"No active {(TaxKind=="Services"?"SAC":"HSN")} classifications exist for this company. Add one in HSN/SAC Master.":
+            SelectedTaxId is null?"Select an HSN/SAC classification first to load its GST rate contexts.":
             TaxContexts.Count==0?"No context is assigned to this classification. Configure it in Classification rate assignments.":"";
-        if(initialize && SelectedTaxId.HasValue && TaxContext is not null) await RefreshTaxPreviewAsync(ct);
+        if(SelectedTaxId.HasValue && TaxContext is not null) await RefreshTaxPreviewAsync(ct);
         Notify();
     }
 
@@ -405,13 +435,15 @@ public sealed partial class CatalogViewModel(ProductCatalogService service, Unit
         var candidates=categoryOptions.Where(x => x.Id == currentLink || x.Active && (Products || x.Id != detail?.Row.Id)).ToArray();
         Choices=Products ? candidates : [new(null,"Root category",true), ..candidates];
         Link=Choices.FirstOrDefault(x => x.Id == currentLink);
-        Sections=Products
+        allSections=Products
             ? [
-                new("General", [Text("Code","Code *"), Text("Name","Name *"), Text("ShortName","Short name"), Long("Description","Description"), Choice("Kind","Product type *",["Goods","Services"]), Check("Active","Active")]),
+                new("General", [Text("Code",LegacyProduct?"Item Code":"Code *"), Text("Name",LegacyProduct?"Item Name *":"Name *"), Text("ShortName","Short name"), Long("Description","Description"), Choice("Kind","Product type *",["Goods","Services"]), Check("Active","Active")]),
                 new("Identification", [Text("Brand","Brand"), Text("Sku","SKU"), Text("Barcode","Barcode"), Text("PartNumber","Manufacturer part number"), Text("ModelNumber","Model number")]),
-                new("Units", [Text("BaseUnit","Base unit *"), Text("SalesUnit","Sales unit"), Money("SalesFactor","Base units per sales unit"), Text("PurchaseUnit","Purchase unit"), Money("PurchaseFactor","Base units per purchase unit"), Integer("QuantityPrecision","Quantity decimal places")]),
+                new("Units", [LegacyProduct && detail is null
+                    ?new CustomerField("BaseUnit","Unit *","Choice",unitOptions)
+                    :Text("BaseUnit",LegacyProduct?"Unit *":"Base unit *"), Text("SalesUnit","Sales unit"), Money("SalesFactor","Base units per sales unit"), Text("PurchaseUnit","Purchase unit"), Money("PurchaseFactor","Base units per purchase unit"), Integer("QuantityPrecision","Quantity decimal places")]),
                 new("GST & Tax", [Text("Hsn","Legacy HSN / SAC"), Money("GstRate","Legacy GST rate %"), Check("TaxExempt","Legacy exemption flag"), Long("TaxNotes","Tax classification notes")]),
-                new("Pricing", [Money("PurchaseRate","Default purchase rate"), Money("SalesRate","Default sales rate"), Money("Mrp","MRP"), Check("SalesInclusive","Sales price includes tax"), Check("PurchaseInclusive","Purchase price includes tax"), Text("Currency","Currency *"), Date("PricingDate","Pricing effective date")]),
+                new("Pricing", [Money("PurchaseRate","Default purchase rate"), Money("SalesRate",LegacyProduct?"Sale Price":"Default sales rate"), Money("Mrp",LegacyProduct?"M.R.P.":"MRP"), Check("SalesInclusive","Sales price includes tax"), Check("PurchaseInclusive","Purchase price includes tax"), Text("Currency","Currency *"), Date("PricingDate","Pricing effective date")]),
                 new("Inventory", [Check("StockTracked","Track stock"), Money("ReorderLevel","Reorder level"), Money("MinimumStock","Minimum stock"), Money("MaximumStock","Maximum stock"), Text("StorageLocation","Default storage location")]),
                 new("Image & Details", [Long("Specifications","Specifications"), Long("Warranty","Warranty"), Long("Remarks","Internal remarks")]),
               ]
@@ -421,16 +453,26 @@ public sealed partial class CatalogViewModel(ProductCatalogService service, Unit
         {
             Kind=defaults.Get(SettingsRegistry.ProductType),QuantityPrecision=defaults.Get(SettingsRegistry.QuantityPlaces)
         }) : detail?.Category ?? new());
-        foreach (var field in Fields)
+        foreach (var section in allSections)
+        foreach (var field in section.Fields)
         {
             field.ReadOnly=ViewOnly || field.Name is "Hsn" or "GstRate" or "TaxExempt" ||
-                detail is not null && field.Name=="Code" || field.Name=="Active"&&!Can("StatusChange") ||
-                Products && !Can("PricingEdit") && Sections.Any(s=>s.Title=="Pricing" && s.Fields.Contains(field));
-            field.IsVisible=!Products || !readOnly || (field.Name switch
+                (LegacyProduct || detail is not null) && field.Name=="Code" || field.Name=="Active"&&!Can("StatusChange") ||
+                Products && !Can("PricingEdit") && section.Title=="Pricing" ||
+                LegacyProduct && detail is not null && field.Name=="BaseUnit" ||
+                Products && ProductFormConfiguration.Mode(defaults,field.Name)=="Read-only";
+            field.IsVisible=!Products || ProductFormConfiguration.TabVisible(defaults, section.Title) &&
+                ProductFieldVisible(field.Name, !readOnly || (field.Name switch
             {
                 "Sku"=>defaults.Get(SettingsRegistry.ProductSku),"Barcode"=>defaults.Get(SettingsRegistry.ProductBarcode),
                 "Hsn"=>defaults.Get(SettingsRegistry.ProductHsn),"Description"=>defaults.Get(SettingsRegistry.ProductDescription),_=>true
-            });
+            }));
+            if(Products)
+            {
+                var label=ProductFormConfiguration.Caption(defaults,field.Name,field.Label);
+                field.ProductCaption=label+(ProductFormConfiguration.Mode(defaults,field.Name)=="Required" && !label.EndsWith('*')?" *":"");
+            }
+            if(LegacyProduct && detail is null && field.Name=="Code") field.Text="Assigned on save";
             field.Changed+=changed =>
             {
                 MarkDirty();
@@ -443,7 +485,21 @@ public sealed partial class CatalogViewModel(ProductCatalogService service, Unit
                 }
             };
         }
+        Sections=Products ? allSections.Where(section => ProductFormConfiguration.TabVisible(defaults, section.Title))
+            .Select(section => section with { Fields=section.Fields.Where(field => field.IsVisible).ToArray() })
+            .Where(section => section.Fields.Count > 0 || section.Title switch
+            {
+                "General" => ShowCategory,
+                "GST & Tax" => ShowTaxClassification || ShowTaxContext || ShowTaxPreviewDate,
+                "Image & Details" => ProductFieldVisible("Image", !readOnly || defaults.Get(SettingsRegistry.ProductImage)),
+                _ => false
+            }).ToArray() : allSections;
         EditorSection=Sections.FirstOrDefault();
+        OnPropertyChanged(nameof(ShowCategory));
+        OnPropertyChanged(nameof(ShowTaxClassification));
+        OnPropertyChanged(nameof(ShowTaxContext));
+        OnPropertyChanged(nameof(TaxClassificationCaption));OnPropertyChanged(nameof(TaxContextCaption));
+        OnPropertyChanged(nameof(ShowTaxPreviewDate));
         ResetTax();
         Audit=detail is null ? "Audit details are recorded when this record is saved." :
             $"Created {detail.CreatedUtc:u} by {detail.CreatedBy} · Updated {detail.UpdatedUtc:u} by {detail.UpdatedBy}";
@@ -462,6 +518,7 @@ public sealed partial class CatalogViewModel(ProductCatalogService service, Unit
         ViewOnly=false;
         original=null;
         Sections=[];
+        allSections=[];
         EditorSection=null;
         ResetTax();
         Choices=[];
@@ -506,7 +563,10 @@ public sealed partial class CatalogViewModel(ProductCatalogService service, Unit
             var request=new CatalogRequest(CatalogAction.Save,Products,company,original?.Row.Id,original?.Row.Version);
             if (Products)
             {
-                var input=CustomerEditorFields.Read<ProductDraft>(Fields,"",errors) with { CategoryId=Link?.Id ?? Guid.Empty };
+                var categoryId=Link?.Id;
+                var input=CustomerEditorFields.Read<ProductDraft>(Fields,"",errors) with { CategoryId=categoryId ?? Guid.Empty };
+                if (LegacyProduct && original is null && string.IsNullOrWhiteSpace(input.SalesUnit))
+                    input=input with { SalesUnit=input.BaseUnit, SalesFactor=1 };
                 ProductTaxSelection? selection=null;
                 if(SelectedTaxId is Guid taxId && (taxId!=originalTaxClassification || TaxContext!=originalTaxContext))
                 {

@@ -124,6 +124,22 @@ public sealed class SettingsDisplay
                 "Hsn"=>Current.Get(SettingsRegistry.ProductHsn),"Sku"=>Current.Get(SettingsRegistry.ProductSku),
                 "Barcode"=>Current.Get(SettingsRegistry.ProductBarcode),_=>true
             });
+            if(product && property is not null)
+            {
+                var field=property switch {"Category"=>"CategoryId","Status"=>"Active","Hsn"=>"TaxClassification",_=>property};
+                permitted &= ProductFormConfiguration.EditorFieldVisible(Current,field);
+                var baselineCaption=ProductFormConfiguration.IsLegacy(Current)?field switch
+                {
+                    "Code"=>"Item Code","Name"=>"Item Name","BaseUnit"=>"Unit","SalesRate"=>"Sale Price",
+                    "TaxClassification"=>"HSN Code",_=>column.Header?.ToString()??field
+                }:column.Header?.ToString()??field;
+                column.Header=ProductFormConfiguration.Caption(Current,field,baselineCaption);
+            }
+            if(id=="Customers" && property=="TradeName")
+            {
+                permitted=ConfigurationModule.CustomerMode(Current,property)!="Hidden";
+                column.Header=ConfigurationModule.CustomerCaption(Current,property,column.Header?.ToString()??"Trade name");
+            }
             column.Visibility=(!preference.Hidden || guarded) && permitted?Visibility.Visible:Visibility.Collapsed;
             column.Width=preference.Width is int width?new DataGridLength(width):baseline.Widths[index];
             if(column is DataGridTextColumn text && !string.IsNullOrEmpty(property))
@@ -148,13 +164,18 @@ public sealed class SettingsDisplay
             ? Current.Get(SettingsRegistry.ProductUnit)=="Sales unit" ? "SalesUnit" : "BaseUnit"
             : property;
         var dates=property is "LastLogin" or "OccurredUtc" or "UpdatedUtc" or "CreatedUtc" or "UpdatedDate";
-        var money=property is "SalesRate" or "Mrp" or "CreditLimit" or "PurchaseRate";
-        if(!dates && !money && targetPath==property) return;
-        var digits=product?Current.Get(SettingsRegistry.ProductRatePlaces):2;
-        var numberSpec=(Current.Get(SettingsRegistry.NumberFormat)=="Grouped"?"N":"F")+digits.ToString(CultureInfo.InvariantCulture);
-        var format=dates?"{0:"+Current.Get(SettingsRegistry.DateFormat)+" "+Current.Get(SettingsRegistry.TimeFormat)+"}" :
-            money?"{0:"+numberSpec+"}":currentBinding?.StringFormat;
-        if(money && Current.Get(SettingsRegistry.CurrencyFormat)=="Currency code")
+        var dateOnly=property is "Date" or "EstablishedOn" or "Start" or "End";
+        var money=property is "SalesRate" or "Mrp" or "CreditLimit" or "PurchaseRate" or "Taxable" or "Tax" or "Total";
+        if(!dates && !dateOnly && !money && targetPath==property) return;
+        var companyFormat=Current.Values.ContainsKey(ConfigurationModule.DateFormat.Key);
+        var date=companyFormat?Current.Get(ConfigurationModule.DateFormat):Current.Get(SettingsRegistry.DateFormat);
+        var time=companyFormat?Current.Get(ConfigurationModule.TimeFormat):Current.Get(SettingsRegistry.TimeFormat);
+        var digits=companyFormat?int.Parse(Current.Get(ConfigurationModule.Precision),CultureInfo.InvariantCulture):
+            product?Current.Get(SettingsRegistry.ProductRatePlaces):2;
+        var numberSpec=(companyFormat || Current.Get(SettingsRegistry.NumberFormat)=="Grouped"?"N":"F")+digits.ToString(CultureInfo.InvariantCulture);
+        var format=dates?"{0:"+date+" "+time+"}":dateOnly?"{0:"+date+"}":
+            money?(companyFormat?"₹":"")+"{0:"+numberSpec+"}":currentBinding?.StringFormat;
+        if(money && !companyFormat && Current.Get(SettingsRegistry.CurrencyFormat)=="Currency code")
         {
             var combined=new MultiBinding {Mode=BindingMode.OneWay,StringFormat="{0:"+numberSpec+"} {1}"};
             combined.Bindings.Add(new Binding(targetPath) {TargetNullValue=""});
@@ -163,8 +184,10 @@ public sealed class SettingsDisplay
             column.Binding=combined;
             return;
         }
-        if(currentBinding?.Path?.Path==targetPath && currentBinding.StringFormat==format) return;
-        column.Binding=new Binding(targetPath) { Mode=BindingMode.OneWay,StringFormat=format,TargetNullValue="" };
+        var culture=money && companyFormat?CultureInfo.GetCultureInfo(
+            Current.Get(ConfigurationModule.Grouping)=="Indian"?"en-IN":"en-US"):null;
+        if(currentBinding?.Path?.Path==targetPath && currentBinding.StringFormat==format && Equals(currentBinding.ConverterCulture,culture)) return;
+        column.Binding=new Binding(targetPath) { Mode=BindingMode.OneWay,StringFormat=format,TargetNullValue="",ConverterCulture=culture };
     }
 
     private static int Index(string? number,int count) =>
