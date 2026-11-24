@@ -123,6 +123,7 @@
      <ScrollViewer VerticalScrollBarVisibility="Auto">
       <StackPanel>
        <StackPanel>
+        <StackPanel Visibility="{Binding ShowCategory,Converter={StaticResource Visible}}">
         <TextBlock FontWeight="SemiBold">
          <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Text" Value="{DynamicResource Display.Catalog.Value.ParentCategory}"/><Style.Triggers>
           <DataTrigger Binding="{Binding Products}" Value="True"><Setter Property="Text" Value="{DynamicResource Display.Catalog.Value.Category}"/></DataTrigger>
@@ -131,6 +132,7 @@
         <local:SearchableComboBox SearchItemsSource="{Binding Choices}" SelectedItem="{Binding Link}" DisplayMemberPath="Label"
          IsEnabled="{Binding CanSave}" AutomationProperties.Name="Category or parent category"/>
         <TextBlock Text="{Binding LinkError}" Foreground="#A31621" TextWrapping="Wrap"/>
+        </StackPanel>
         <TabControl ItemsSource="{Binding Sections}" SelectedItem="{Binding EditorSection}" Margin="0,8,0,0">
          <TabControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding Caption}"/></DataTemplate></TabControl.ItemTemplate>
          <TabControl.ContentTemplate><DataTemplate>

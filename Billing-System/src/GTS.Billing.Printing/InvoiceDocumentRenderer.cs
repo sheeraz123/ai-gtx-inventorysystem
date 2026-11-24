@@ -213,6 +213,7 @@ public static class InvoiceDocumentRenderer
             totalsBlock.Children.Add(Cells([Label("Total","Grand Total"),
                 Join(currency=="No symbol"?null:currency??"INR",Amount(totals.Total))],[.58,.42],true));
             Add(totalsBlock);
+            AddText("Amount in words: Rupees "+IndianAmountWords.Format(totals.Total),bold:true);
             if(Output("Terms")) AddText(Value(Label("PaymentTerms","Payment terms"),invoice.Header.Terms));
             if(invoice.Header.DueDate is DateOnly due) AddText("Due date — "+Date(due));
             if(invoice.Seller.Presentation.Bank is { } bank)

@@ -28,6 +28,24 @@ public sealed record PlannedModule(string Code, string Title)
 public sealed record ShellMenuEntry(PlannedModule Module, IRelayCommand<PlannedModule> Navigate)
 {
     public string Title => ConfigurationModule.MenuCaption(SettingsDisplay.Current,Module.Code,Module.Caption);
+    public string Icon=>Module.Code switch
+    {
+        "company"=>"\uE821",
+        "customer" or "users"=>"\uE716",
+        "category"=>"\uE8F1",
+        "product"=>"\uE7B8",
+        "unit"=>"\uECC6",
+        "brand"=>"\uE8EC",
+        "hsnsac" or "documentseries"=>"\uE8FD",
+        "tax" or "taxassignments" or "price"=>"\uE8EF",
+        "financialyear"=>"\uE787",
+        "payment"=>"\uE8C7",
+        "credit"=>"\uE710",
+        "debit"=>"\uE738",
+        "backup"=>"\uE8B7",
+        "settings"=>"\uE713",
+        _=>"\uE8A5"
+    };
 }
 
 public sealed class ShellViewModel : ObservableObject

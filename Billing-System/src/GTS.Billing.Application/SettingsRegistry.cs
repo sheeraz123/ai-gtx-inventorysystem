@@ -41,7 +41,7 @@ public sealed record GridLayout(ImmutableArray<GridColumnPreference> Columns,str
     public static GridLayout Default { get; }=new([],null,false);
 }
 
-public sealed record ResolvedSettings(ImmutableDictionary<string,string> Values)
+public sealed record ResolvedSettings(ImmutableDictionary<string,string> Values,ImmutableHashSet<string>? ExplicitKeys=null)
 {
     public static ResolvedSettings Empty { get; }=new(ImmutableDictionary<string,string>.Empty);
     public T Get<T>(SettingKey<T> key) => Values.TryGetValue(key.Key,out var value) && key.Parse(value) is { Valid:true } parsed
@@ -89,6 +89,16 @@ public static partial class SettingsRegistry
     public static readonly SettingKey<string> CurrencyFormat=Choice("App.CurrencyFormat",General,"Currency display format","Amount only",PersonalView,["Amount only","Currency code"]);
     public static readonly SettingKey<string> Language=Choice("App.Language",General,"Interface language","English",PersonalView,["English"]);
     public static readonly SettingKey<string> Theme=Choice("Appearance.Theme",Appearance,"Theme","Light",PersonalView,["Light","Dark"]);
+    public static readonly SettingKey<string> ShellTheme=Choice("Appearance.CompanyTheme",Appearance,"Company theme","Existing Theme",
+        Company,["Existing Theme","Modern Blue & White","Professional Dark"],BusinessEdit);
+    public static readonly SettingKey<string> NavigationPosition=Choice("Appearance.NavigationPosition",Appearance,"Navigation position",
+        "TOP_NAVIGATION",Company,["TOP_NAVIGATION","LEFT_NAVIGATION","RIGHT_NAVIGATION"],BusinessEdit);
+    public static readonly SettingKey<string> InvoiceListLayout=Choice("SalesList.Layout",SalesListConfiguration.Filters,"Invoice list layout",
+        SalesListConfiguration.Modern,Company,[SalesListConfiguration.Classic,SalesListConfiguration.Modern,SalesListConfiguration.Split],InvoiceEdit);
+    public static readonly SettingKey<string> InvoiceFilterArrangement=Choice("SalesList.FilterArrangement",SalesListConfiguration.Filters,
+        "Filter arrangement","Wrapped",Company,["Wrapped","Stacked"],InvoiceEdit);
+    public static readonly SettingKey<string> InvoiceActionArrangement=Choice("SalesList.ActionArrangement",SalesListConfiguration.Actions,
+        "Action arrangement","Wrapped",Company,["Wrapped","Stacked"],InvoiceEdit);
     public static readonly SettingKey<string> Density=Choice("Appearance.Density",Appearance,"Interface density","Comfortable",PersonalView,["Comfortable","Compact"]);
     public static readonly SettingKey<int> FontScale=Number("Appearance.FontScale",Appearance,"Font scale (%)",100,90,150,PersonalView);
     public static readonly SettingKey<int> SearchDebounce=Number("Grid.SearchDebounce",Grid,"Search debounce (ms)",300,200,1000,PersonalView,
@@ -183,16 +193,22 @@ public static partial class SettingsRegistry
     ];
 
     public static readonly SettingKey<string> ReviewedSalesGstPlace=Choice("Sales.GstReviewedPlace",Sales,
-        "Pre-reviewed domestic GST place of supply","",Company,
+        "Automatic GST confirmation — reviewed place of supply","",Company,
         ["",..GTS.Billing.Domain.CompanyRules.States.Keys.Order()],InvoiceEdit);
     public static readonly SettingKey<string> ReviewedSalesGstJurisdiction=Choice("Sales.GstReviewedJurisdiction",Sales,
-        "Pre-reviewed domestic GST jurisdiction","Unresolved",Company,
+        "Automatic GST confirmation — reviewed jurisdiction","Unresolved",Company,
         ["Unresolved","IntraState","IntraUnionTerritory","Interstate"],InvoiceEdit);
+    public static readonly SettingKey<string> SalesGstReviewMode=Choice("Sales.GstReviewMode",Sales,
+        "GST review mode","Company workflow",Company,
+        ["Company workflow","Reviewed defaults only","Manual review"],InvoiceEdit);
 
     public static readonly ImmutableArray<SettingDefinition> Definitions=Core.Concat(PrintMargins).Concat(OptionalSections).Concat(GridLayouts)
-        .Concat([ReviewedSalesGstPlace,ReviewedSalesGstJurisdiction])
+        .Concat([ShellTheme,NavigationPosition,InvoiceListLayout,InvoiceFilterArrangement,InvoiceActionArrangement])
+        .Concat(SalesListConfiguration.Items)
+        .Concat([SalesGstReviewMode,ReviewedSalesGstPlace,ReviewedSalesGstJurisdiction])
         .Concat(LoginPage.Keys.Values)
         .Concat(SalesFormConfiguration.Fields.Select(x=>x.Setting))
+        .Concat([SalesFormConfiguration.EntryLayout,SalesFormConfiguration.EntryProfile])
         .Concat(ConfigurationModule.Definitions)
         .Concat(CreateLabels()).ToImmutableArray();
     public static readonly ImmutableDictionary<string,SettingDefinition> ByKey=Definitions.ToImmutableDictionary(x=>x.Key,StringComparer.Ordinal);

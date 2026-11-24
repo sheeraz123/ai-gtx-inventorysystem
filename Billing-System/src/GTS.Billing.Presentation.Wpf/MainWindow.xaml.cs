@@ -1,4 +1,7 @@
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.IO;
 using GTS.Billing.Application;
 using GTS.Billing.Infrastructure;
@@ -38,8 +41,32 @@ public partial class MainWindow : Window
     {
         SettingsDisplay.Instance.Apply(ResolvedSettings.Empty);
         InitializeComponent();
+        SettingsDisplay.Instance.Changed+=(_,_)=>ApplyNavigationPosition();
+        ApplyNavigationPosition();
         DataContext = viewModel;
         this.authentication = authentication;
+        PreviewKeyDown+=(_,eventArgs)=>
+        {
+            if(!IsBillingShellVisible || !IsEnabled || authentication.Busy || eventArgs.IsRepeat ||
+                Keyboard.FocusedElement is TextBoxBase or PasswordBox or ComboBox) return;
+            var key=eventArgs.Key==Key.System?eventArgs.SystemKey:eventArgs.Key;
+            var gesture=Keyboard.Modifiers switch
+            {
+                ModifierKeys.None when key is >=Key.F1 and <=Key.F12=>key.ToString(),
+                (ModifierKeys.Control|ModifierKeys.Shift) when key is >=Key.A and <=Key.Z=>$"Ctrl+Shift+{key}",
+                _=>null
+            };
+            if(gesture is null) return;
+            bool Assigned(string id)=>SettingsDisplay.Current.Text("Configuration.Shortcut."+id,"Disabled")==gesture;
+            foreach(var (id,menu) in new[]{("master",MasterMenuHeader),("transactions",TransactionMenuHeader),
+                ("administration",AdministrationMenuHeader)})
+                if(Assigned(id) && menu.IsVisible && menu.IsEnabled)
+                {menu.Focus();menu.IsSubmenuOpen=true;eventArgs.Handled=true;return;}
+            var target=ShellViewModel.ModuleCatalog.FirstOrDefault(module=>Assigned(module.Code) && viewModel.CanNavigate(module));
+            if(target is null) return;
+            viewModel.NavigateCommand.Execute(target);
+            eventArgs.Handled=true;
+        };
         CompanyPanel.DataContext = companies;
         CustomerPanel.DataContext = customers;
         CatalogPanel.DataContext = catalog;
@@ -326,6 +353,7 @@ public partial class MainWindow : Window
             return;
         }
         var signedIn = authentication.Page == AuthenticationPage.Shell && !authentication.Lifetime.IsStopping;
+        if(!signedIn || authentication.Busy) AccountMenu.IsSubmenuOpen=false;
         SignInNotice.Text=signedIn && authentication.Message==loginPresentation.Get("Success")?authentication.Message:"";
         BillingShell.Visibility = signedIn ? Visibility.Visible : Visibility.Collapsed;
         BillingShell.IsEnabled = !authentication.Busy;
@@ -337,6 +365,28 @@ public partial class MainWindow : Window
     {
         if (sender is System.Windows.Controls.MenuItem { IsEnabled: true, HasItems: true, IsSubmenuOpen: false } item)
             item.SetCurrentValue(System.Windows.Controls.MenuItem.IsSubmenuOpenProperty, true);
+    }
+
+    private void ApplyNavigationPosition()
+    {
+        var position=SettingsDisplay.Current.Get(SettingsRegistry.NavigationPosition);
+        var dock=position switch {"LEFT_NAVIGATION"=>Dock.Left,"RIGHT_NAVIGATION"=>Dock.Right,_=>Dock.Top};
+        DockPanel.SetDock(NavigationHost,dock);
+        NavigationHost.Width=dock==Dock.Top?double.NaN:180;
+        ToggleNavigation.Visibility=dock==Dock.Top?Visibility.Collapsed:Visibility.Visible;
+        NavigationMenu.Visibility=Visibility.Visible;
+        ToggleNavigation.Content="Hide navigation";
+        var panel=new FrameworkElementFactory(typeof(StackPanel));
+        panel.SetValue(StackPanel.OrientationProperty,dock==Dock.Top?Orientation.Horizontal:Orientation.Vertical);
+        NavigationMenu.ItemsPanel=new ItemsPanelTemplate(panel);
+    }
+
+    private void ToggleNavigationClicked(object sender,RoutedEventArgs e)
+    {
+        var expanded=NavigationMenu.Visibility!=Visibility.Visible;
+        NavigationMenu.Visibility=expanded?Visibility.Visible:Visibility.Collapsed;
+        ToggleNavigation.Content=expanded?"Hide navigation":"☰";
+        NavigationHost.Width=expanded?180:58;
     }
 
     private async void RegenerateClicked(object sender, RoutedEventArgs e)

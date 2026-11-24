@@ -48,14 +48,16 @@ public sealed partial class CatalogViewModel(ProductCatalogService service, Unit
     public bool CanSave => EditorOpen && !ViewOnly && !Busy && company is not null && Can(original is null?"Create":"Edit");
     public bool CanEditViewed => ViewOnly && EditorOpen && !Busy && Can("Edit");
     public bool ShowImage => Products && EditorOpen && ProductFieldVisible("Image", !ViewOnly || SettingsDisplay.Current.Get(SettingsRegistry.ProductImage));
-    public bool ShowCategory => !Products || ProductFormConfiguration.TabVisible(SettingsDisplay.Current, "General") &&
-        ProductFieldVisible("CategoryId");
+    public bool ShowCategory => !Products || ProductFormConfiguration.EditorFieldVisible(SettingsDisplay.Current,"CategoryId") ||
+        original is null && !categoryOptions.Any(category=>category.Active &&
+            string.Equals(category.Code,SettingsDisplay.Current.Get(ProductFormConfiguration.DefaultCategory),StringComparison.OrdinalIgnoreCase));
     public bool ShowTaxClassification => ProductFieldVisible("TaxClassification");
     public bool ShowTaxContext => ProductFieldVisible("TaxContext");
     public bool ShowTaxPreviewDate => ProductFieldVisible("TaxPreviewDate");
     public bool CanEditTax => Products && CanSave && tax is not null && access.Allows("GstRate.Assign");
     public bool CanEditTaxClassification=>CanEditTax && ProductFormConfiguration.Mode(SettingsDisplay.Current,"TaxClassification")!="Read-only";
-    public bool CanEditTaxContext=>CanEditTax && ProductFormConfiguration.Mode(SettingsDisplay.Current,"TaxContext")!="Read-only";
+    public bool CanEditTaxContext=>CanEditTax && SelectedTaxId.HasValue && TaxContexts.Count>0 &&
+        ProductFormConfiguration.Mode(SettingsDisplay.Current,"TaxContext")!="Read-only";
     public string TaxClassificationCaption=>ProductFormConfiguration.Caption(SettingsDisplay.Current,"TaxClassification",
         LegacyProduct?"HSN Code":"HSN / SAC classification");
     public string TaxContextCaption=>ProductFormConfiguration.Caption(SettingsDisplay.Current,"TaxContext",LegacyProduct?"Tax / GST Rate":"GST rate context");
@@ -112,7 +114,9 @@ public sealed partial class CatalogViewModel(ProductCatalogService service, Unit
         if(updatingTax || !EditorOpen || ViewOnly) return;
         MarkDirty();
         TaxContext=null;
+        TaxContexts=[];
         TaxRate="";
+        Notify();
         _=RunAsync(ct=>LoadTaxAsync(ct,false));
     }
     partial void OnTaxContextChanged(string? value)
@@ -352,7 +356,7 @@ public sealed partial class CatalogViewModel(ProductCatalogService service, Unit
         TaxMessage=TaxChoices.All(choice=>choice.Id==Guid.Empty)?
             $"No active {(TaxKind=="Services"?"SAC":"HSN")} classifications exist for this company. Add one in HSN/SAC Master.":
             SelectedTaxId is null?"Select an HSN/SAC classification first to load its GST rate contexts.":
-            TaxContexts.Count==0?"No context is assigned to this classification. Configure it in Classification rate assignments.":"";
+            TaxContexts.Count==0?"No GST rate is assigned to this HSN/SAC. In Classification rate assignments, link a GST rate and effective date to this classification.":"";
         if(SelectedTaxId.HasValue && TaxContext is not null) await RefreshTaxPreviewAsync(ct);
         Notify();
     }

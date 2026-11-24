@@ -133,6 +133,10 @@ public sealed class SettingsStore(DevelopmentDatabase database,TimeProvider cloc
                 var outcome=Save(db,actor.UserId,access,company,request,values);
                 if(outcome.Outcome!=CompanyOutcome.Success) return outcome;
                 await db.SaveChangesAsync(ct);
+                if(company is Guid shortcutCompany && request.Changes?.Any(change=>
+                    change.Key.StartsWith("Configuration.Shortcut.",StringComparison.Ordinal))==true &&
+                    await ShortcutConflictAsync(db,shortcutCompany,ct) is { } conflict)
+                    return new(CompanyOutcome.InvalidInput,Message:conflict);
                 if(company is Guid productCompany && request.Changes?.Any(change=>
                     change.Key.StartsWith("Configuration.ProductForm.",StringComparison.Ordinal))==true &&
                     ProductFormConfiguration.LayoutError(await ReadCompanyAsync(db,productCompany,ct)) is { } productError)
@@ -162,13 +166,21 @@ public sealed class SettingsStore(DevelopmentDatabase database,TimeProvider cloc
             var editorIds=rows.Values.Select(x=>x.UpdatedByUserId).Distinct().ToArray();
             var editors=await db.Set<User>().Where(u=>editorIds.Contains(u.Id)).ToDictionaryAsync(u=>u.Id,u=>u.Username,ct);
             var resolution=Resolve(eligible,values.Where(v=>InScope(v.Scope,request.Scope)));
+            var graftexSales=false;
+            if(request.Section==SalesFormConfiguration.Section && company is Guid salesCompany)
+            {
+                var selectedCompany=await db.Set<Company>().Where(item=>item.Id==salesCompany)
+                    .Select(item=>new {item.Code,item.LegalName}).SingleAsync(ct);
+                graftexSales=SalesFormConfiguration.UsesGraftex(resolution.Get(SalesFormConfiguration.EntryProfile),
+                    selectedCompany.Code,selectedCompany.LegalName);
+            }
             return new(CompanyOutcome.Success,Entries:eligible.Select(d=>
             {
                 var stored=rows.GetValueOrDefault(d.Key);
                 return new SettingEntry(d,request.Scope,resolution.Text(d.Key,d.DefaultText),stored?.Value,stored?.Version,
                     stored?.UpdatedUtc,stored is null?null:editors.GetValueOrDefault(stored.UpdatedByUserId),
                     CanEdit(d,request.Scope,access,company));
-            }).ToArray(),CurrentCompanyId:company);
+            }).ToArray(),CurrentCompanyId:company,GraftexSalesEntry:graftexSales);
         }
         catch(DbUpdateConcurrencyException) { return new(CompanyOutcome.Conflict); }
         catch(DbUpdateException e) when(e.InnerException is SqliteException {SqliteErrorCode:19}) { return new(CompanyOutcome.Conflict); }
@@ -229,6 +241,9 @@ public sealed class SettingsStore(DevelopmentDatabase database,TimeProvider cloc
         var outcome=Save(db,actor,access,company,request with {Section=null,Changes=changes},target);
         if(outcome.Outcome!=CompanyOutcome.Success) return outcome;
         await db.SaveChangesAsync(ct);
+        if(changes.Any(change=>change.Key.StartsWith("Configuration.Shortcut.",StringComparison.Ordinal)) &&
+            await ShortcutConflictAsync(db,company,ct) is { } conflict)
+            return new(CompanyOutcome.InvalidInput,Message:conflict);
         if(changes.Any(change=>change.Key.StartsWith("Configuration.ProductForm.",StringComparison.Ordinal)) &&
             ProductFormConfiguration.LayoutError(await ReadCompanyAsync(db,company,ct)) is { } productError)
             return new(CompanyOutcome.InvalidInput,Message:productError);
@@ -264,6 +279,15 @@ public sealed class SettingsStore(DevelopmentDatabase database,TimeProvider cloc
     private static bool InScope(string value,SettingScope scope)=>value==SettingScope.Application.ToString() ||
         value==scope.ToString() || scope==SettingScope.User && value==SettingScope.Company.ToString();
 
+    private static async Task<string?> ShortcutConflictAsync(BillingDbContext db,Guid company,CancellationToken ct)
+    {
+        var settings=await ReadCompanyAsync(db,company,ct);
+        var duplicate=ConfigurationModule.Definitions.Where(item=>item.Section==ConfigurationModule.Shortcuts)
+            .GroupBy(item=>settings.Text(item.Key,item.DefaultText))
+            .FirstOrDefault(group=>group.Key!="Disabled" && group.Count()>1);
+        return duplicate is null?null:$"{duplicate.Key} is already assigned. Choose a different shortcut.";
+    }
+
     private static Task<List<SettingOverride>> ReadValues(BillingDbContext db,Guid? company,Guid? user,CancellationToken ct)=>
         db.Set<SettingOverride>().Where(v=>v.Scope=="Application" ||
             company!=null && v.Scope=="Company" && v.CompanyId==company ||
@@ -272,6 +296,7 @@ public sealed class SettingsStore(DevelopmentDatabase database,TimeProvider cloc
     private static ResolvedSettings Resolve(IEnumerable<SettingDefinition> definitions,IEnumerable<SettingOverride> rows)
     {
         var result=ImmutableDictionary.CreateBuilder<string,string>(StringComparer.Ordinal);
+        var explicitKeys=ImmutableHashSet.CreateBuilder<string>(StringComparer.Ordinal);
         var byScope=rows.ToLookup(x=>x.Key,StringComparer.Ordinal);
         foreach(var key in definitions)
         {
@@ -279,9 +304,10 @@ public sealed class SettingsStore(DevelopmentDatabase database,TimeProvider cloc
                 key.Scopes.HasFlag(scope)).OrderByDescending(x=>x.Scope=="User"?3:x.Scope=="Company"?2:1)
                 .FirstOrDefault(x=>key.TryNormalize(x.Value!,out _));
             var value=valid?.Value ?? key.DefaultText;
+            if(valid is not null) explicitKeys.Add(key.Key);
             result[key.Key]=key.Key==SettingsRegistry.InvoiceTemplate.Key?InvoiceTemplates.ForNewInvoice(value):value;
         }
-        return new(result.ToImmutable());
+        return new(result.ToImmutable(),explicitKeys.ToImmutable());
     }
 
     internal static async Task<ResolvedSettings> ReadCompanyAsync(BillingDbContext db,Guid company,CancellationToken ct) =>

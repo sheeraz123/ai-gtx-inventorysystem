@@ -223,12 +223,13 @@ public sealed partial class SettingsViewModel(ApplicationSettingsService service
             if(access.CurrentCompanyId is not null)
                 options.InsertRange(3,new[]{SettingsRegistry.Branding,SettingsRegistry.Bank,SettingsRegistry.Invoice,SettingsRegistry.Sales,
                     SettingsRegistry.Product,SettingsRegistry.Gst,SettingsRegistry.Printing}.Select(x=>new SettingsSection(x)));
+            if(access.CurrentCompanyId is not null) options.AddRange(SalesListConfiguration.Sections.Select(x=>new SettingsSection(x)));
         }
         if(access.Allows("Settings.SecurityView")) options.Add(new(SettingsRegistry.Security));
         if(access.IsSuperAdmin) options.Add(new(LoginPage.Section));
         if(access.IsSuperAdmin && access.CurrentCompanyId is not null)
         {
-            options.AddRange(new[]{ConfigurationModule.General,FormsSection,ConfigurationModule.Billing,ConfigurationModule.History}
+            options.AddRange(new[]{ConfigurationModule.General,FormsSection,ConfigurationModule.Billing,ConfigurationModule.Shortcuts,ConfigurationModule.History}
                 .Select(name=>new SettingsSection(name)));
             SelectedConfigurationModule??=ConfigurationModules[0];
         }
@@ -520,7 +521,7 @@ public sealed partial class SettingsViewModel(ApplicationSettingsService service
             if(!Accept(result) || result.Entries is null) return;
             var dialog=new SalesFormConfigurationDialog(owner,CompanyLabel,result.Entries,
                 edits=>Send(new(SettingsAction.Save,SettingScope.Company,company,SalesFormConfiguration.Section,edits),ct),
-                ()=>Send(new(SettingsAction.SalesFormHistory,SettingScope.Company,company),ct));
+                ()=>Send(new(SettingsAction.SalesFormHistory,SettingScope.Company,company),ct),result.GraftexSalesEntry);
             changed=dialog.ShowDialog()==true;
         });
         if(changed)

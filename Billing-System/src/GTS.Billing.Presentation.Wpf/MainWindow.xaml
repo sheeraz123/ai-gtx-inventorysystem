@@ -5,52 +5,79 @@
  Title="{DynamicResource Display.App.WindowTitle}" Width="1150" Height="760" MinWidth="850" MinHeight="550">
  <Window.Resources>
   <BooleanToVisibilityConverter x:Key="Visible"/>
+  <DataTemplate x:Key="ShellIconHeader"><StackPanel Orientation="Horizontal">
+   <TextBlock FontFamily="Segoe MDL2 Assets" Width="19" Margin="0,0,3,0" VerticalAlignment="Center"
+              Text="{Binding Tag,RelativeSource={RelativeSource AncestorType=MenuItem}}"/>
+   <AccessText Text="{Binding}" VerticalAlignment="Center"/>
+  </StackPanel></DataTemplate>
   <Style x:Key="ShellSubmenuItem" TargetType="MenuItem">
    <Setter Property="Header" Value="{Binding Title}"/>
+   <Setter Property="Tag" Value="{Binding Icon}"/>
+   <Setter Property="HeaderTemplate" Value="{StaticResource ShellIconHeader}"/>
    <Setter Property="Command" Value="{Binding Navigate}"/>
    <Setter Property="CommandParameter" Value="{Binding Module}"/>
    <Setter Property="MinWidth" Value="184"/>
   </Style>
   <Style x:Key="ShellMenuHeader" TargetType="MenuItem">
    <Setter Property="Padding" Value="15,7"/>
+   <Setter Property="HeaderTemplate" Value="{StaticResource ShellIconHeader}"/>
   </Style>
  </Window.Resources>
  <Grid Background="{DynamicResource Palette.Canvas}">
  <local:AuthenticationView x:Name="AuthenticationPanel" />
  <DockPanel x:Name="BillingShell" Visibility="Collapsed" Background="{DynamicResource Palette.Canvas}"
   TextElement.Foreground="{DynamicResource Palette.Text}" TextElement.FontSize="{DynamicResource Display.FontSize}">
-  <Border DockPanel.Dock="Top" Background="#15263C" Padding="{DynamicResource Display.BodyPadding}"><StackPanel>
+  <Border DockPanel.Dock="Top" Background="{DynamicResource Palette.ShellHeader}" Padding="{DynamicResource Display.BodyPadding}">
+   <DockPanel LastChildFill="True">
+    <Menu DockPanel.Dock="Right" VerticalAlignment="Top" Margin="12,0,0,0"
+          Background="{DynamicResource Palette.Surface}" Foreground="{DynamicResource Palette.Text}"
+          AutomationProperties.Name="Account">
+     <MenuItem x:Name="AccountMenu" Header="Account actions" AutomationProperties.Name="Account actions"
+               ToolTip="Account actions" Padding="11,8" MouseEnter="OpenNavigationSubmenu">
+      <MenuItem.HeaderTemplate><DataTemplate>
+       <TextBlock Text="&#xE77B;" FontFamily="Segoe MDL2 Assets" FontSize="20"
+                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+      </DataTemplate></MenuItem.HeaderTemplate>
+      <MenuItem x:Name="Regenerate" Header="Regenerate recovery codes" Tag="&#xE72E;"
+                HeaderTemplate="{StaticResource ShellIconHeader}" Click="RegenerateClicked"/>
+      <MenuItem Header="Change password" Tag="&#xE72E;"
+                HeaderTemplate="{StaticResource ShellIconHeader}" Click="ChangePasswordClicked"/>
+      <MenuItem Header="_Sign out" Tag="&#xE8AC;"
+                HeaderTemplate="{StaticResource ShellIconHeader}" Click="LogoutClicked"/>
+     </MenuItem>
+    </Menu>
+    <StackPanel>
    <TextBlock Text="{DynamicResource Display.App.Title}" FontSize="25" Foreground="White" FontWeight="SemiBold" />
    <TextBlock Text="{DynamicResource Display.App.Subtitle}" Foreground="#CBD5E1" Margin="0,5,0,0" />
    <TextBlock x:Name="CurrentCompanyIndicator" Text="No company selected" Foreground="White" Margin="0,5,0,0" />
    <local:NoticeBanner x:Name="SignInNotice" Kind="Success" Margin="0,5,0,0" />
-   <WrapPanel Margin="0,10,0,0">
-    <Button x:Name="Regenerate" Content="Regenerate recovery codes" Click="RegenerateClicked" Padding="8,4" />
-    <Button Content="Change password" Click="ChangePasswordClicked" Padding="8,4" Margin="8,0,0,0" />
-    <Button Content="_Sign out" Click="LogoutClicked" Padding="8,4" Margin="8,0,0,0" />
-   </WrapPanel>
-  </StackPanel></Border>
+    </StackPanel>
+   </DockPanel>
+  </Border>
   <Border DockPanel.Dock="Bottom" Background="#FFF2CC" Padding="16"><StackPanel>
    <TextBlock Text="{Binding DevelopmentWarning}" Foreground="#332610" TextWrapping="Wrap" />
    <TextBlock x:Name="DiagnosticsStatus" Text="{Binding DiagnosticsWarning}" Foreground="#332610" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
   </StackPanel></Border>
-  <Border DockPanel.Dock="Top" Background="{DynamicResource Palette.Surface}" BorderBrush="{DynamicResource Palette.GridLine}" BorderThickness="0,0,0,1" Padding="12,4">
-   <Menu Background="Transparent" Foreground="{DynamicResource Palette.Text}" AutomationProperties.Name="Billing navigation">
-    <MenuItem Header="{DynamicResource Display.Navigation.Dashboard}" Style="{StaticResource ShellMenuHeader}"
+  <Border x:Name="NavigationHost" DockPanel.Dock="Top" Background="{DynamicResource Palette.Surface}" BorderBrush="{DynamicResource Palette.GridLine}" BorderThickness="0,0,0,1" Padding="12,4">
+   <DockPanel>
+   <Button x:Name="ToggleNavigation" DockPanel.Dock="Top" Content="Hide navigation" Click="ToggleNavigationClicked" Visibility="Collapsed" Margin="0,0,0,6"/>
+   <Menu x:Name="NavigationMenu" Background="Transparent" Foreground="{DynamicResource Palette.Text}" AutomationProperties.Name="Billing navigation">
+    <MenuItem Header="{DynamicResource Display.Navigation.Dashboard}" Tag="&#xE80F;" Style="{StaticResource ShellMenuHeader}"
      Command="{Binding NavigateCommand}" CommandParameter="{Binding Dashboard}"/>
-    <MenuItem Header="{Binding MasterCaption}" Style="{StaticResource ShellMenuHeader}" ItemsSource="{Binding MasterMenu}"
+    <MenuItem x:Name="MasterMenuHeader" Header="{Binding MasterCaption}" Tag="&#xE8F1;" Style="{StaticResource ShellMenuHeader}" ItemsSource="{Binding MasterMenu}"
      Visibility="{Binding HasMasters,Converter={StaticResource Visible}}"
      ItemContainerStyle="{StaticResource ShellSubmenuItem}" MouseEnter="OpenNavigationSubmenu"/>
-    <MenuItem Header="{Binding TransactionCaption}" Style="{StaticResource ShellMenuHeader}" ItemsSource="{Binding TransactionMenu}"
+    <MenuItem x:Name="TransactionMenuHeader" Header="{Binding TransactionCaption}" Tag="&#xE8AB;" Style="{StaticResource ShellMenuHeader}" ItemsSource="{Binding TransactionMenu}"
      Visibility="{Binding HasTransactions,Converter={StaticResource Visible}}"
      ItemContainerStyle="{StaticResource ShellSubmenuItem}" MouseEnter="OpenNavigationSubmenu"/>
-    <MenuItem Header="{Binding ReportsCaption}" Style="{StaticResource ShellMenuHeader}"
+    <MenuItem Header="{Binding ReportsCaption}" Tag="&#xE9D9;" Style="{StaticResource ShellMenuHeader}"
      Visibility="{Binding CanSeeReports,Converter={StaticResource Visible}}"
      Command="{Binding NavigateCommand}" CommandParameter="{Binding Reports}"/>
-    <MenuItem Header="{Binding AdministrationCaption}" Style="{StaticResource ShellMenuHeader}" ItemsSource="{Binding AdministrationMenu}"
+    <MenuItem x:Name="AdministrationMenuHeader" Header="{Binding AdministrationCaption}" Tag="&#xE713;" Style="{StaticResource ShellMenuHeader}" ItemsSource="{Binding AdministrationMenu}"
      Visibility="{Binding HasAdministration,Converter={StaticResource Visible}}"
      ItemContainerStyle="{StaticResource ShellSubmenuItem}" MouseEnter="OpenNavigationSubmenu"/>
    </Menu>
+   </DockPanel>
   </Border>
   <Grid>
   <StackPanel x:Name="PlannedPanel" Margin="32">

@@ -25,7 +25,7 @@ public sealed record SettingEntry(SettingDefinition Definition,SettingScope Scop
 public sealed record SettingsResult(CompanyOutcome Outcome,IReadOnlyList<SettingEntry>? Entries=null,ResolvedSettings? Runtime=null,
     string? Message=null,string? InvalidKey=null,Guid? CurrentCompanyId=null,
     IReadOnlyList<SalesFormVersion>? SalesFormVersions=null,IReadOnlyList<ConfigurationSource>? ConfigurationSources=null,
-    IReadOnlyList<ConfigurationAuditEntry>? ConfigurationHistory=null);
+    IReadOnlyList<ConfigurationAuditEntry>? ConfigurationHistory=null,bool GraftexSalesEntry=false);
 public sealed record ConfigurationSource(Guid Id,string Name);
 public sealed record ConfigurationAuditEntry(DateTime AtUtc,string? Actor,string Action,string Key,string Changes);
 public sealed record SalesFormVersion(Guid Id,DateTime AtUtc,Guid? ActorId,string Json)

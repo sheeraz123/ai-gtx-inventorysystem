@@ -53,19 +53,24 @@ public sealed class SettingsDisplay
         Current=settings;
         foreach(var definition in SettingsRegistry.Definitions.Where(x=>x.IsDisplayText || x.Key.StartsWith("App.",StringComparison.Ordinal)))
             app.Resources["Display."+definition.Key]=settings.Text(definition.Key,definition.DefaultText);
-        var dark=settings.Get(SettingsRegistry.Theme)=="Dark";
+        var theme=settings.Get(SettingsRegistry.ShellTheme);
+        var dark=theme=="Professional Dark" || theme=="Existing Theme" && settings.Get(SettingsRegistry.Theme)=="Dark";
+        var blue=theme=="Modern Blue & White";
         Brush Tone(string light,string night)
         {
             var brush=(SolidColorBrush)new BrushConverter().ConvertFromString(dark?night:light)!;
             brush.Freeze();
             return brush;
         }
-        app.Resources["Palette.Canvas"]=Tone("#F3F5F8","#1E293B");
+        app.Resources["Palette.Canvas"]=Tone(blue?"#EDF4FF":"#F3F5F8","#1E293B");
+        app.Resources["Palette.ShellHeader"]=Tone(blue?"#103875":"#15263C","#111B2A");
         app.Resources["Palette.Surface"]=Tone("#FFFFFF","#243247");
         app.Resources["Palette.Text"]=Tone("#172033","#F1F5F9");
         app.Resources["Palette.Muted"]=Tone("#475569","#CBD5E1");
         app.Resources["Palette.GridLine"]=Tone("#CBD5E1","#475569");
         app.Resources["Palette.Alternate"]=Tone("#EAF0F7","#2C3C54");
+        app.Resources["Palette.InvoiceHeading"]=Tone("#DCEBFC","#304F75");
+        app.Resources["Palette.InvoiceAccent"]=Tone("#174A82","#24578A");
         app.Resources["Display.FontSize"]=13.0*settings.Get(SettingsRegistry.FontScale)/100;
         app.Resources["Display.BodyPadding"]=settings.Get(SettingsRegistry.Density)=="Compact"?new Thickness(10,6,10,6):new Thickness(16,10,16,10);
         foreach(var reference in grids.ToArray())

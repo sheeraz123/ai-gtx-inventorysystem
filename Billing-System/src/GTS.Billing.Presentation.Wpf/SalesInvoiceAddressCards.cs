@@ -13,6 +13,8 @@ internal sealed class SalesInvoiceAddressCards
     private readonly ComboBox ship;
     private readonly TextBlock billText=new() {TextWrapping=TextWrapping.Wrap};
     private readonly TextBlock shipText=new() {TextWrapping=TextWrapping.Wrap};
+    private readonly StackPanel billEditor=new(),shipEditor=new();
+    internal bool IsEditing {get;private set;}
     private readonly NoticeBanner notice=new() {Margin=new Thickness(0,6,0,0)};
     private readonly Button billEdit=new() {Content="Edit Address",HorizontalAlignment=HorizontalAlignment.Left};
     private readonly Button shipEdit=new() {Content="Edit Address",HorizontalAlignment=HorizontalAlignment.Left};
@@ -28,6 +30,7 @@ internal sealed class SalesInvoiceAddressCards
     internal Guid? ShippingId=>(ship.SelectedItem as SalesChoice)?.Id;
     internal Control BillingField=>bill;
     internal Control ShippingField=>ship;
+    internal Panel Section {get;}
     internal bool IsLoading {get;private set;}
     internal event Action? Changed;
 
@@ -51,13 +54,15 @@ internal sealed class SalesInvoiceAddressCards
         left.Children.Add(billEdit);
         var actions=new WrapPanel();
         actions.Children.Add(shipEdit);actions.Children.Add(copy);right.Children.Add(actions);
+        left.Children.Add(billEditor);right.Children.Add(shipEditor);
         foreach(var button in new[]{billEdit,shipEdit,copy}) button.Margin=new Thickness(0,7,7,0);
         copy.Content=form.Field("CopyBilling").Label;
         copy.Visibility=form.Field("CopyBilling").Visible?Visibility.Visible:Visibility.Collapsed;
         billEdit.Visibility=form.Field("EditBilling").Visible?Visibility.Visible:Visibility.Collapsed;
         shipEdit.Visibility=form.Field("EditShipping").Visible?Visibility.Visible:Visibility.Collapsed;
-        owner.AddSection(new StackPanel {Tag=Math.Min(form.Field("BillingDetails").Order,form.Field("ShippingDetails").Order),
-            Children={columns,notice}});
+        Section=new StackPanel {Tag=Math.Min(form.Field("BillingDetails").Order,form.Field("ShippingDetails").Order),
+            Children={columns,notice}};
+        owner.AddSection(Section);
         customer.SelectionChanged+=(_,_)=>Reload(null,null);
         bill.SelectionChanged+=(_,_)=>Render();
         ship.SelectionChanged+=(_,_)=>Render();
@@ -78,6 +83,7 @@ internal sealed class SalesInvoiceAddressCards
             Padding=new Thickness(12),Margin=new Thickness(column==1?6:0,0,column==0?6:0,10)};
         card.SetResourceReference(Border.BorderBrushProperty,"Palette.GridLine");
         card.SetResourceReference(Border.BackgroundProperty,"Palette.Surface");
+        SalesInvoiceEditor.StyleCard(card);
         Grid.SetColumn(card,column);
         grid.Children.Add(card);
     }
@@ -134,8 +140,8 @@ internal sealed class SalesInvoiceAddressCards
         var billing=Address(true);var shipping=Address(false);
         billText.Text=Describe(billing,"billing");
         shipText.Text=Describe(shipping,"shipping");
-        bill.IsEnabled=ship.IsEnabled=current is not null && !IsLoading;
-        billEdit.IsEnabled=shipEdit.IsEnabled=canEdit && current is not null && !IsLoading;
+        bill.IsEnabled=ship.IsEnabled=current is not null && !IsLoading && !IsEditing;
+        billEdit.IsEnabled=shipEdit.IsEnabled=canEdit && current is not null && !IsLoading && !IsEditing;
         copy.IsEnabled=shipEdit.IsEnabled && billing is not null;
         billEdit.Content=billing is null?"Add Address":form.Caption("EditBilling","Edit Address");
         shipEdit.Content=shipping is null?"Add Address":form.Caption("EditShipping","Edit Address");
@@ -155,7 +161,7 @@ internal sealed class SalesInvoiceAddressCards
 
     private void Edit(bool billing,bool copyBilling)
     {
-        if(!canEdit || IsLoading || current is not { } selected) return;
+        if(!canEdit || IsLoading || IsEditing || current is not { } selected) return;
         var existing=Address(billing);
         var original=copyBilling?Address(true):existing;
         if(copyBilling && original is null) return;
@@ -167,13 +173,22 @@ internal sealed class SalesInvoiceAddressCards
             Label=dedicated?.Label??(existing is null && !copyBilling?original?.Label??side:side),
             IsDefaultBilling=false,IsDefaultShipping=false
         };
-        var dialog=new MeasureEditorDialog(side+" address",false){Owner=owner};
-        if(existing is {AddressType:"Both"}) dialog.ShowMessage(
-            "This address is shared. Saving creates a separate address for this side.",NoticeKind.Information);
+        var editor=billing?billEditor:shipEditor;
+        var summary=billing?billText:shipText;
+        var savedBilling=BillingId;
+        var savedShipping=ShippingId;
+        var customerWasEnabled=customer.IsEnabled;
+        IsEditing=true;
+        customer.IsEnabled=false;
+        summary.Visibility=Visibility.Collapsed;
+        Render();
+        if(existing is {AddressType:"Both"})
+            editor.Children.Add(new TextBlock {Text="Saving creates a separate address for this side.",
+                TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,6,0,8)});
         var fields=new Dictionary<string,Control>();
         TextBox Field(string property,string label,string? text,int limit)
         {
-            var field=dialog.Text(label,text,limit);
+            var field=owner.Text(label,text,limit,panel:editor);
             fields.Add(property,field);
             return field;
         }
@@ -188,16 +203,17 @@ internal sealed class SalesInvoiceAddressCards
         var district=Field(nameof(input.District),"District",input.District,120);
         var country=Field(nameof(input.Country),"Country code *",input.Country,2);
         var states=CompanyRules.States.Select(x=>new SalesChoice(Guid.Empty,x.Value,Code:x.Key)).OrderBy(x=>x.Label).ToArray();
-        var state=dialog.Choice("Indian state / UT",states,states.FirstOrDefault(x=>x.Code==input.StateCode),
+        var state=owner.Choice("Indian state / UT",states,states.FirstOrDefault(x=>x.Code==input.StateCode),
             nameof(SalesChoice.Label),searchable:true);
         fields.Add(nameof(input.StateCode),state);
         var stateName=Field(nameof(input.StateName),"State or province outside India",input.StateName,120);
         var postal=Field(nameof(input.PostalCode),"PIN / postal code",input.PostalCode,20);
         var mobile=Field(nameof(input.Mobile),"Mobile",input.Mobile,50);
         var email=Field(nameof(input.Email),"Email",input.Email,160);
-        Guid? persisted=null;
+        var editorActions=new WrapPanel();
+        editor.Children.Add(editorActions);
         var refreshAfterConflict=false;
-        dialog.Save(async ()=>
+        owner.Save(async ()=>
         {
             var proposal=input with {Label=label.Text,RecipientName=recipient.Text,Organization=organization.Text,Line1=line1.Text,
                 Line2=line2.Text,Landmark=landmark.Text,Locality=locality.Text,City=city.Text,District=district.Text,
@@ -207,12 +223,17 @@ internal sealed class SalesInvoiceAddressCards
             ApplyErrors(validated.Errors);
             if(validated.Errors.Count>0) return "Correct the highlighted address fields.";
             var verb=proposal.Id.HasValue?"Update":"Add";
-            if(MessageBox.Show(dialog,$"{verb} this {side.ToLowerInvariant()} address in Customer Master? This saves it immediately.",
+            if(MessageBox.Show(owner,$"{verb} this {side.ToLowerInvariant()} address in Customer Master? This saves it immediately.",
                 "Confirm customer address",MessageBoxButton.YesNo,MessageBoxImage.Question,MessageBoxResult.No)!=MessageBoxResult.Yes)
                 return "Address was not saved.";
             var result=await save(selected.CustomerId,selected.Version,validated.Value,
                 existing is {AddressType:"Both"}?existing.Id:null,CancellationToken.None);
-            if(result.Outcome==CustomerOutcome.Success && result.AddressId is Guid id){persisted=id;return null;}
+            if(result.Outcome==CustomerOutcome.Success && result.AddressId is Guid id)
+            {
+                CloseEditor();
+                Reload(billing?id:savedBilling,billing?savedShipping:id,side+" address saved to Customer Master.");
+                return null;
+            }
             refreshAfterConflict=result.Outcome==CustomerOutcome.Conflict;
             if(result.Errors is {Count:>0} errors)
             {
@@ -221,13 +242,13 @@ internal sealed class SalesInvoiceAddressCards
             }
             return result.Outcome switch
             {
-                CustomerOutcome.Conflict=>"The customer or address changed. Close this editor and reload before trying again.",
+                CustomerOutcome.Conflict=>"The customer or address changed. Cancel address edit to reload before trying again.",
                 CustomerOutcome.Forbidden=>"Customer View and Edit permissions are required to change the address.",
                 CustomerOutcome.SessionRequired=>"Your session expired. Sign in again.",
                 CustomerOutcome.CompanyChanged=>"The active company changed. Reopen the invoice.",
                 _=>"The address could not be saved."
             };
-        },"Save to Customer Master");
+        },"Save to Customer Master",panel:editorActions);
 
         void ApplyErrors(IReadOnlyDictionary<string,string> errors)
         {
@@ -235,17 +256,35 @@ internal sealed class SalesInvoiceAddressCards
             foreach(var (key,field) in fields)
             {
                 errors.TryGetValue(key,out var error);
-                dialog.SetFieldError(field,error);
+                owner.SetFieldError(field,error);
                 if(error is not null) first??=field;
             }
-            if(first is not null) dialog.FocusInvalidField(first);
+            if(first is not null) owner.FocusInvalidField(first);
         }
-        foreach(var field in fields.Values.OfType<TextBox>()) field.TextChanged+=(_,_)=>dialog.SetFieldError(field,null);
-        state.SelectionChanged+=(_,_)=>dialog.SetFieldError(state,null);
+        foreach(var field in fields.Values.OfType<TextBox>()) field.TextChanged+=(_,_)=>owner.SetFieldError(field,null);
+        state.SelectionChanged+=(_,_)=>owner.SetFieldError(state,null);
 
-        var savedBilling=BillingId; var savedShipping=ShippingId;
-        dialog.ShowDialog();
-        if(persisted.HasValue) Reload(billing?persisted:savedBilling,billing?savedShipping:persisted,side+" address saved to Customer Master.");
-        else if(refreshAfterConflict) Reload(savedBilling,savedShipping);
+        var cancel=new Button {Content="Cancel address edit",Margin=new Thickness(4),Padding=new Thickness(9,4,9,4)};
+        editorActions.Children.Add(cancel);
+        cancel.Click+=(_,_) =>
+        {
+            if(MessageBox.Show(owner,"Discard changes to this address?","Cancel address edit",
+                MessageBoxButton.YesNo,MessageBoxImage.Question,MessageBoxResult.No)!=MessageBoxResult.Yes) return;
+            CloseEditor();
+            if(refreshAfterConflict) Reload(savedBilling,savedShipping);
+        };
+        owner.FocusInvalidField(line1);
+
+        void CloseEditor()
+        {
+            owner.RemoveEditorFields(fields.Values);
+            editor.Children.Clear();
+            summary.Visibility=Visibility.Visible;
+            customer.IsEnabled=customerWasEnabled;
+            IsEditing=false;
+            owner.ShowMessage("");
+            Render();
+            Changed?.Invoke();
+        }
     }
 }

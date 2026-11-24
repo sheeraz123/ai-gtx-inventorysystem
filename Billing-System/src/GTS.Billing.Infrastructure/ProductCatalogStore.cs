@@ -351,8 +351,9 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
                 var categoryCode=settings.Get(ProductFormConfiguration.DefaultCategory);
                 var categoryId=product?.CategoryId??await categories.Where(x=>x.Active && x.Code==categoryCode)
                     .Select(x=>(Guid?)x.Id).SingleOrDefaultAsync(ct);
-                if(categoryId is null) return Invalid("CategoryId","Set an active default product category in Product / Item Master configuration.");
-                input=input with {CategoryId=categoryId.Value};
+                if(categoryId is Guid configuredCategory) input=input with {CategoryId=configuredCategory};
+                else if(input.CategoryId==Guid.Empty)
+                    return Invalid("CategoryId","Choose an active category or configure a default in Product / Item Master settings.");
             }
             if(legacy && isNew)
             {

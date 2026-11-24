@@ -36,6 +36,8 @@ public sealed partial class CompanyPresentationViewModel(CompanyPresentationServ
     [ObservableProperty] private string _taxGstin = "";
     [ObservableProperty] private string _taxState = "";
     [ObservableProperty] private bool _taxDefault;
+    [ObservableProperty] private bool _linkDefaultBillingAddress;
+    partial void OnLinkDefaultBillingAddressChanged(bool value)=>OnPropertyChanged(nameof(HasPendingChanges));
     [ObservableProperty] private bool _taxOpen;
     public IReadOnlyList<CompanyChoice> TaxStates { get; } = GTS.Billing.Domain.CompanyRules.States
         .Select(x=>new CompanyChoice(x.Key,x.Value)).ToArray();
@@ -244,11 +246,12 @@ public sealed partial class CompanyPresentationViewModel(CompanyPresentationServ
         TaxState=detail?.Draft.StateCode ?? "";
         Active=detail?.Draft.Active ?? true;
         TaxDefault=detail?.Draft.Default ?? false;
+        LinkDefaultBillingAddress=false;
         Editing=edit;
         TaxOpen=true;
     }
 
-    private CompanyTaxDraft TaxDraft() => new(TaxGstin,TaxState,Active,TaxDefault);
+    private CompanyTaxDraft TaxDraft() => new(TaxGstin,TaxState,Active,TaxDefault,LinkDefaultBillingAddress);
 
     private void ShowLogoRows(IReadOnlyList<LogoListItem> rows)
     {

@@ -5,56 +5,90 @@
  <UserControl.Resources>
   <BooleanToVisibilityConverter x:Key="Visible"/>
   <Style x:Key="InvoiceButton" TargetType="Button" BasedOn="{StaticResource BillingButton}">
-   <Setter Property="Margin" Value="0,0,8,6"/><Setter Property="Padding" Value="12,5"/><Setter Property="MinHeight" Value="34"/>
+   <Setter Property="Margin" Value="0,0,8,5"/>
+   <Setter Property="Padding" Value="12,5"/>
   </Style>
  </UserControl.Resources>
- <DockPanel Margin="16">
+ <DockPanel Margin="12">
   <StackPanel DockPanel.Dock="Top">
-   <TextBlock Text="{DynamicResource Display.Sales.Title}" FontSize="26" FontWeight="SemiBold"/>
-   <DockPanel Margin="0,6">
-    <Button DockPanel.Dock="Right" Content="Close" Command="{Binding DismissFinalizationNoticeCommand}"
+   <Border x:Name="TitleBanner" Background="{DynamicResource Palette.InvoiceHeading}" CornerRadius="6" Margin="0,0,0,6">
+    <TextBlock Text="{DynamicResource Display.Sales.Title}" FontSize="24" FontWeight="SemiBold"/>
+   </Border>
+   <DockPanel>
+    <Button DockPanel.Dock="Right" Content="Dismiss" Command="{Binding DismissFinalizationNoticeCommand}"
       Visibility="{Binding CanDismissFinalizationNotice,Converter={StaticResource Visible}}" Margin="6,0,0,0"/>
     <local:NoticeBanner Text="{Binding Message}" Kind="{Binding FinalizationNoticeKind}"/>
    </DockPanel>
    <ProgressBar Height="4" IsIndeterminate="{Binding Busy}" Visibility="{Binding Busy,Converter={StaticResource Visible}}"/>
-   <WrapPanel>
-    <TextBox Width="220" Height="34" Padding="7,4" Margin="0,0,8,6" MaxLength="100"
-     Text="{Binding SearchText,UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search invoices"/>
-    <ComboBox Width="125" Height="34" Margin="0,0,8,6" ItemsSource="{Binding Statuses}" SelectedItem="{Binding Status}"
-     DisplayMemberPath="Label" AutomationProperties.Name="Invoice status"/>
-    <local:SearchableComboBox Width="135" Height="34" Margin="0,0,8,6" SearchItemsSource="{Binding Years}" SelectedItem="{Binding Year}"
-     DisplayMemberPath="Label" AutomationProperties.Name="Financial year"/>
-    <local:SearchableComboBox Width="160" Height="34" Margin="0,0,8,6" SearchItemsSource="{Binding Customers}" SelectedItem="{Binding Customer}"
-     DisplayMemberPath="Label" AutomationProperties.Name="Customer"/>
-    <local:SearchableComboBox Width="150" Height="34" Margin="0,0,8,6" SearchItemsSource="{Binding SeriesChoices}" SelectedItem="{Binding Series}"
-     DisplayMemberPath="Label" AutomationProperties.Name="Document series"/>
-    <TextBlock Text="From" Margin="0,6,4,6"/><DatePicker SelectedDate="{Binding From}" AutomationProperties.Name="From date" Margin="0,0,8,6"/>
-    <TextBlock Text="To" Margin="0,6,4,6"/><DatePicker SelectedDate="{Binding To}" AutomationProperties.Name="To date" Margin="0,0,8,6"/>
-   </WrapPanel>
-   <WrapPanel>
-    <Button Style="{StaticResource InvoiceButton}" Content="New invoice" Command="{Binding NewCommand}"/>
-    <Button Style="{StaticResource InvoiceButton}" Content="{DynamicResource Display.Common.View}" Command="{Binding ViewCommand}"/>
-    <Button Style="{StaticResource InvoiceButton}" Content="Print preview" Command="{Binding PrintPreviewCommand}"/>
-    <Button Style="{StaticResource InvoiceButton}" Content="Edit draft" Command="{Binding EditCommand}"/>
-    <Button Style="{StaticResource InvoiceButton}" Content="{DynamicResource Display.Sales.Finalize}" Command="{Binding FinalizeCommand}"/>
-    <Button Style="{StaticResource InvoiceButton}" Content="{DynamicResource Display.Common.Refresh}" Command="{Binding RefreshCommand}"/>
-   </WrapPanel>
+   <Border BorderBrush="{DynamicResource Palette.GridLine}" BorderThickness="1" Background="{DynamicResource Palette.Surface}"
+           CornerRadius="6" Padding="9,7" Margin="0,0,0,7">
+    <ScrollViewer MaxHeight="175" VerticalScrollBarVisibility="Auto">
+     <StackPanel>
+      <ContentControl x:Name="FilterHost"/>
+      <Button HorizontalAlignment="Left" Style="{StaticResource InvoiceButton}" Content="Reset filters" Command="{Binding ResetFiltersCommand}"/>
+     </StackPanel>
+    </ScrollViewer>
+   </Border>
+   <ScrollViewer MaxHeight="110" VerticalScrollBarVisibility="Auto">
+    <ContentControl x:Name="ActionHost" Margin="0,0,0,3"/>
+   </ScrollViewer>
   </StackPanel>
-  <DataGrid ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}" IsReadOnly="True" AutoGenerateColumns="False"
-    CanUserAddRows="False" SelectionMode="Single" MinRowHeight="32" Background="{DynamicResource Palette.Surface}"
-    RowBackground="{DynamicResource Palette.Surface}" Foreground="{DynamicResource Palette.Text}"
-    local:MasterGridInteraction.ViewRowCommand="{Binding ViewCommand}" local:SettingsDisplay.GridId="SalesInvoices">
-   <DataGrid.Columns>
-    <DataGridTextColumn Header="Invoice number" local:SettingsDisplay.LabelKey="Sales.Number" Binding="{Binding Number}" Width="130"/>
-    <DataGridTextColumn Header="Invoice date" local:SettingsDisplay.LabelKey="Sales.Date" Binding="{Binding Date,StringFormat=d}" Width="110"/>
-    <DataGridTextColumn Header="Customer" local:SettingsDisplay.LabelKey="Sales.Customer" Binding="{Binding Customer}" Width="*" MinWidth="135"/>
-    <DataGridTextColumn Header="Financial year" Binding="{Binding Year}" Width="105"/>
-    <DataGridTextColumn Header="Series" Binding="{Binding Series}" Width="100"/>
-    <DataGridTextColumn Header="Taxable value" local:SettingsDisplay.LabelKey="Sales.Taxable" Binding="{Binding Taxable,StringFormat=N2}" Width="105"/>
-    <DataGridTextColumn Header="GST" Binding="{Binding Tax,StringFormat=N2}" Width="90"/>
-    <DataGridTextColumn Header="Grand total" local:SettingsDisplay.LabelKey="Sales.Total" Binding="{Binding Total,StringFormat=N2}" Width="110"/>
-    <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="85"/>
-   </DataGrid.Columns>
-  </DataGrid>
+  <TextBlock DockPanel.Dock="Bottom" Margin="3,5,0,0" Text="{Binding Rows.Count,StringFormat='Invoices shown: {0}'}"/>
+  <Grid>
+   <Grid.ColumnDefinitions>
+    <ColumnDefinition Width="*"/>
+    <ColumnDefinition Width="Auto"/>
+    <ColumnDefinition x:Name="DetailColumn" Width="0"/>
+   </Grid.ColumnDefinitions>
+   <DataGrid x:Name="InvoiceGrid" ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}" IsReadOnly="True"
+    AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Single" SelectionUnit="FullRow"
+    EnableRowVirtualization="True" EnableColumnVirtualization="True" VirtualizingPanel.VirtualizationMode="Recycling"
+    Background="{DynamicResource Palette.Surface}" RowBackground="{DynamicResource Palette.Surface}" Foreground="{DynamicResource Palette.Text}"
+    AlternatingRowBackground="{DynamicResource Palette.Alternate}" AlternationCount="2"
+    local:MasterGridInteraction.ViewRowCommand="{Binding ViewCommand}">
+    <DataGrid.ColumnHeaderStyle>
+     <Style TargetType="DataGridColumnHeader">
+      <Setter Property="Padding" Value="8,7"/>
+      <Setter Property="Background" Value="{DynamicResource Palette.InvoiceHeading}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Palette.Text}"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+     </Style>
+    </DataGrid.ColumnHeaderStyle>
+   </DataGrid>
+   <TextBlock IsHitTestVisible="False" HorizontalAlignment="Center" VerticalAlignment="Center" Text="No invoices match these filters.">
+    <TextBlock.Style>
+     <Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed"/>
+      <Style.Triggers><MultiDataTrigger>
+       <MultiDataTrigger.Conditions><Condition Binding="{Binding Rows.Count}" Value="0"/><Condition Binding="{Binding Busy}" Value="False"/></MultiDataTrigger.Conditions>
+       <Setter Property="Visibility" Value="Visible"/>
+      </MultiDataTrigger></Style.Triggers>
+     </Style>
+    </TextBlock.Style>
+   </TextBlock>
+   <GridSplitter x:Name="DetailDivider" Grid.Column="1" Width="8" HorizontalAlignment="Center" VerticalAlignment="Stretch"
+    Background="{DynamicResource Palette.Canvas}" Visibility="Collapsed"/>
+   <Expander x:Name="DetailPanel" Grid.Column="2" Header="Invoice details" Visibility="Collapsed" IsExpanded="True"
+     Expanded="ToggleDetails" Collapsed="ToggleDetails" Background="{DynamicResource Palette.Surface}"
+     BorderBrush="{DynamicResource Palette.GridLine}" BorderThickness="1" Padding="10">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+     <StackPanel>
+      <TextBlock Text="{Binding Selected.Number}" FontSize="20" FontWeight="SemiBold"/>
+      <TextBlock Text="{Binding Selected.Customer,TargetNullValue='Select an invoice to see its details.'}" TextWrapping="Wrap"/>
+      <TextBlock Text="{Binding Selected.TaxType}" Margin="0,4,0,0"/>
+      <TextBlock Text="{Binding Selected.Status}" Margin="0,4,0,8"/>
+      <TextBlock Text="{Binding SelectedDetail.Customer.Code,StringFormat='Customer code: {0}'}"/>
+      <TextBlock Text="{Binding SelectedDetail.Customer.Gstin,StringFormat='GSTIN: {0}'}"/>
+      <TextBlock Text="{Binding SelectedDetail.Customer.BillTo.Line1}" TextWrapping="Wrap"/>
+      <Separator Margin="0,8"/>
+      <TextBlock Text="{Binding Selected.Taxable,StringFormat='Taxable value: {0:N2}'}"/>
+      <TextBlock Text="{Binding SelectedDetail.Amounts.Cgst,StringFormat='CGST: {0:N2}'}"/>
+      <TextBlock Text="{Binding SelectedDetail.Amounts.Sgst,StringFormat='SGST: {0:N2}'}"/>
+      <TextBlock Text="{Binding SelectedDetail.Amounts.Igst,StringFormat='IGST: {0:N2}'}"/>
+      <TextBlock Text="{Binding Selected.Tax,StringFormat='GST total: {0:N2}'}"/>
+      <TextBlock Text="{Binding Selected.Total,StringFormat='Grand total: {0:N2}'}" FontWeight="Bold" Margin="0,5,0,0"/>
+     </StackPanel>
+    </ScrollViewer>
+   </Expander>
+  </Grid>
  </DockPanel>
 </UserControl>

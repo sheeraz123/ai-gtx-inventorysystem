@@ -6,8 +6,9 @@ public static class ConfigurationModule
     public const string Menus="Menu Configuration";
     public const string Billing="Billing Configuration";
     public const string History="Configuration Audit History";
+    public const string Shortcuts="Keyboard Shortcuts";
     public const string CustomerFields="Form & Field Configuration — Customer";
-    public static IReadOnlyList<string> Sections {get;}=[General,SalesFormConfiguration.Section,CustomerFields,ProductFormConfiguration.Section,Menus,Billing,History];
+    public static IReadOnlyList<string> Sections {get;}=[General,SalesFormConfiguration.Section,CustomerFields,ProductFormConfiguration.Section,Menus,Billing,History,Shortcuts];
 
     public static readonly SettingKey<string> DateFormat=Choice("Date",General,"Date format","dd-MM-yyyy",
         ["dd-MM-yyyy","dd/MM/yyyy","yyyy-MM-dd","dd MMM yyyy"],restart:true);
@@ -78,7 +79,10 @@ public static class ConfigurationModule
             new SettingKey<string>($"Configuration.Menu.{item.Id}.Caption",Menus,item.Name+" caption",
                 "Leave blank to use the existing caption.",SettingScope.Company,SettingKind.Text,"",
                 value=>(value.Length<=80 && !value.Any(char.IsControl),value.Trim()),value=>value)
-        })
+        }),
+        ..MenuItems.Prepend(("dashboard","Dashboard")).Select(item=>Choice($"Shortcut.{item.Item1}",Shortcuts,
+            item.Item2+" shortcut","Disabled",["Disabled",..Enumerable.Range(1,12).Select(number=>$"F{number}"),
+                ..Enumerable.Range('A',26).Select(letter=>$"Ctrl+Shift+{(char)letter}")]))
     ];
 
     public static bool IsAdministrative(SettingDefinition setting)=>

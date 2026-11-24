@@ -170,6 +170,17 @@ public sealed class CompanyPresentationStore(DevelopmentDatabase database) : ICo
         row.StateCode=draft.StateCode;
         row.IsActive=draft.Active;
         row.IsInvoiceDefault=draft.Default;
+        if(draft.LinkDefaultBillingAddress)
+        {
+            var matches=await db.Set<CompanyAddress>().Where(x=>x.CompanyId==company &&
+                x.IsDefaultBilling && x.StateCode==draft.StateCode && x.CountryCode=="IN").Select(x=>x.Id).Take(2).ToArrayAsync(ct);
+            if(matches.Length!=1)
+                return Invalid("Set one default company billing address in the same state as this GST registration before linking.");
+            var addressId=matches[0];
+            if(!await db.Set<GstRegistrationAddress>().AnyAsync(x=>x.CompanyId==company &&
+                x.GstRegistrationId==row.Id && x.AddressId==addressId,ct))
+                db.Add(new GstRegistrationAddress {CompanyId=company,GstRegistrationId=row.Id,AddressId=addressId});
+        }
         return new(CompanyOutcome.Success);
     }
 

@@ -1,5 +1,8 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GTS.Billing.Application;
@@ -8,12 +11,142 @@ namespace GTS.Billing.Presentation.Wpf;
 
 public partial class SalesInvoiceView : UserControl
 {
-    public SalesInvoiceView()=>InitializeComponent();
+    public SalesInvoiceView()
+    {
+        InitializeComponent();
+        Loaded+=(_,_)=>{SettingsDisplay.Instance.Changed+=SettingsChanged;ApplyLayout();};
+        Unloaded+=(_,_)=>SettingsDisplay.Instance.Changed-=SettingsChanged;
+    }
+
+    private void SettingsChanged(object? sender,EventArgs args)=>ApplyLayout();
+    internal static SalesListConfiguration.Rule Rule(string key)
+    {
+        var definition=SalesListConfiguration.Items.Single(x=>x.Key=="SalesList."+key);
+        return SettingsDisplay.Current.Get(definition);
+    }
+    internal static bool VisibleRule(string key)=>Rule(key).Visible;
+
+    private void ApplyLayout()
+    {
+        var settings=SettingsDisplay.Current;
+        var layout=settings.Get(SettingsRegistry.InvoiceListLayout);
+        var classic=layout==SalesListConfiguration.Classic;
+        var split=layout==SalesListConfiguration.Split;
+        TitleBanner.Padding=new Thickness(12,classic?5:12,12,classic?5:12);
+        InvoiceGrid.MinRowHeight=classic?24:32;
+        InvoiceGrid.RowHeight=classic?26:34;
+        DetailColumn.Width=split?new GridLength(320):new GridLength(0);
+        DetailColumn.MinWidth=split?46:0;
+        DetailDivider.Visibility=DetailPanel.Visibility=split?Visibility.Visible:Visibility.Collapsed;
+        Grid.SetColumnSpan(InvoiceGrid,split?1:3);
+        if(split) DetailPanel.IsExpanded=true;
+
+        BuildToolbar(FilterHost,"Filters",settings.Get(SettingsRegistry.InvoiceFilterArrangement)=="Stacked",
+            (id,rule)=>CreateFilter(id,rule,classic));
+        BuildToolbar(ActionHost,"Actions",settings.Get(SettingsRegistry.InvoiceActionArrangement)=="Stacked",
+            (id,rule)=>CreateAction(id,rule));
+
+        InvoiceGrid.Columns.Clear();
+        foreach(var (id,rule) in Rules("Columns"))
+        {
+            var numeric=id is "Tax" or "Taxable" or "Total";
+            var column=new DataGridTextColumn {Header=rule.Label,Width=rule.Width,
+                Binding=new Binding(id) {StringFormat=numeric?"N2":id=="Date"?"dd/MM/yyyy":null}};
+            if(numeric)
+            {
+                var style=new Style(typeof(TextBlock));
+                style.Setters.Add(new Setter(TextBlock.TextAlignmentProperty,TextAlignment.Right));
+                style.Setters.Add(new Setter(MarginProperty,new Thickness(0,0,8,0)));
+                column.ElementStyle=style;
+            }
+            InvoiceGrid.Columns.Add(column);
+        }
+    }
+
+    private static IEnumerable<(string Id,SalesListConfiguration.Rule Rule)> Rules(string group)=>
+        SalesListConfiguration.Items.Where(item=>item.Key.StartsWith("SalesList."+group+".",StringComparison.Ordinal))
+            .Select(item=>(Id:item.Key.Split('.')[2],Rule:SettingsDisplay.Current.Get(item)))
+            .Where(item=>item.Rule.Visible).OrderBy(item=>item.Rule.Order);
+
+    private static void BuildToolbar(ContentControl host,string group,bool stacked,
+        Func<string,SalesListConfiguration.Rule,FrameworkElement> create)
+    {
+        Panel panel=stacked?new StackPanel():new WrapPanel();
+        foreach(var (id,rule) in Rules(group)) panel.Children.Add(create(id,rule));
+        host.Content=panel;
+    }
+
+    private static FrameworkElement CreateFilter(string id,SalesListConfiguration.Rule rule,bool classic)
+    {
+        Control input;
+        if(id is "From" or "To")
+        {
+            var date=new DatePicker();
+            date.SetBinding(DatePicker.SelectedDateProperty,id);
+            input=date;
+        }
+        else if(id is "Search" or "Customer" or "Number")
+        {
+            var text=new TextBox {MaxLength=100,Padding=new Thickness(6,4,6,4)};
+            text.SetBinding(TextBox.TextProperty,new Binding(id=="Search"?"SearchText":id+"Text")
+                {UpdateSourceTrigger=UpdateSourceTrigger.PropertyChanged});
+            input=text;
+        }
+        else if(id=="Category")
+        {
+            var items=new FrameworkElementFactory(typeof(StackPanel));
+            items.SetValue(StackPanel.OrientationProperty,Orientation.Horizontal);
+            var categories=new ListBox {DisplayMemberPath="Label",ItemsPanel=new ItemsPanelTemplate(items),
+                SelectionMode=SelectionMode.Single};
+            categories.SetBinding(ItemsControl.ItemsSourceProperty,"Categories");
+            categories.SetBinding(Selector.SelectedItemProperty,"Category");
+            ScrollViewer.SetHorizontalScrollBarVisibility(categories,ScrollBarVisibility.Disabled);
+            input=categories;
+        }
+        else
+        {
+            var combo=new ComboBox {DisplayMemberPath="Label"};
+            combo.SetBinding(ItemsControl.ItemsSourceProperty,id switch
+                {"Status"=>"Statuses","Year"=>"Years",_=>"SeriesChoices"});
+            combo.SetBinding(Selector.SelectedItemProperty,id);
+            input=combo;
+        }
+        input.MinHeight=classic?24:30;
+        System.Windows.Automation.AutomationProperties.SetName(input,rule.Label);
+        return new StackPanel {Width=id switch {"Category"=>double.NaN,"Customer" or "Search"=>180,_=>135},
+            Margin=new Thickness(0,0,10,6),
+            Children={new Label {Content=rule.Label,Target=input,Padding=new Thickness(0,0,0,3)},input}};
+    }
+
+    private FrameworkElement CreateAction(string id,SalesListConfiguration.Rule rule)
+    {
+        var button=new Button {Content=rule.Label,Style=(Style)FindResource("InvoiceButton")};
+        BillingIcon.Set(button,rule.Label,id switch
+        {
+            "New"=>"\uE710","View"=>"\uE890","PrintPreview"=>"\uE749","Edit"=>"\uE70F",
+            "Finalize"=>"\uE73E",_=>"\uE72C"
+        });
+        button.SetBinding(Button.CommandProperty,id+"Command");
+        if(id=="New" && !SystemParameters.HighContrast)
+        {
+            button.SetResourceReference(BackgroundProperty,"Palette.InvoiceAccent");
+            button.Foreground=System.Windows.Media.Brushes.White;
+        }
+        return button;
+    }
+
+    private void ToggleDetails(object sender,RoutedEventArgs e)
+    {
+        if(!IsLoaded || DetailColumn is null || DetailPanel.Visibility!=Visibility.Visible) return;
+        DetailColumn.Width=new GridLength(DetailPanel.IsExpanded?320:46);
+        DetailPanel.Header=DetailPanel.IsExpanded?"Invoice details":null;
+    }
 }
 
 public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,CustomerService customers):ObservableObject
 {
     private readonly MasterSearch search=new();
+    private readonly MasterSearch details=new();
     private AccessSnapshot access=AccessSnapshot.Denied;
     private SalesOptions? options;
     private Guid? company;
@@ -21,6 +154,8 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
     private bool loaded;
     public Action? SessionExpired {get;set;}
     public IReadOnlyList<CatalogFilter> Statuses {get;}=[new("All statuses",null),new("Finalized",true),new("Draft",false)];
+    public IReadOnlyList<SalesCategoryFilter> Categories {get;}=[new("All Bills",null),new("Local Sale",SalesIntent.Local),
+        new("Inter State Sale",SalesIntent.Interstate)];
     private static readonly SalesChoice All=new(Guid.Empty,"All");
     public IReadOnlyList<SalesChoice> Years=>[All,..options?.Years??[]];
     public IReadOnlyList<SalesChoice> Customers=>[All,..options?.Customers??[]];
@@ -28,6 +163,11 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
     [ObservableProperty] private IReadOnlyList<SalesRow> _rows=[];
     [ObservableProperty] private SalesRow? _selected;
     [ObservableProperty] private string _searchText="";
+    [ObservableProperty] private string _numberText="";
+    [ObservableProperty] private string _customerText="";
+    [ObservableProperty] private SalesCategoryFilter? _category;
+    [ObservableProperty] private SalesInvoiceSnapshot? _selectedDetail;
+    public bool IsSplit=>SettingsDisplay.Current.Get(SettingsRegistry.InvoiceListLayout)==SalesListConfiguration.Split;
     [ObservableProperty] private string _message="";
     [ObservableProperty] private CatalogFilter? _status;
     [ObservableProperty] private SalesChoice? _year;
@@ -60,13 +200,14 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
     }
     public void Clear()
     {
-        generation++;loaded=false;search.Cancel();company=null;options=null;Rows=[];Selected=null;DismissFinalizationNotice();
+        generation++;loaded=false;search.Cancel();details.Cancel();company=null;options=null;Rows=[];Selected=null;SelectedDetail=null;DismissFinalizationNotice();
         Notify();
     }
     public async Task OpenAsync()
     {
         Clear();
-        SearchText="";Status=Statuses[0];Year=Customer=Series=All;From=To=null;loaded=true;
+        ResetFilters();
+        loaded=true;
         var version=generation;
         while(Busy && version==generation) await Task.Delay(30);
         if(version==generation) await RefreshAsync();
@@ -78,7 +219,34 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
         PrintPreviewCommand.NotifyCanExecuteChanged();
     }
     partial void OnBusyChanged(bool value)=>Notify();
-    partial void OnSelectedChanged(SalesRow? value)=>Notify();
+    partial void OnSelectedChanged(SalesRow? value)
+    {
+        Notify();
+        details.Cancel();
+        SelectedDetail=null;
+        if(!IsSplit || value is null || company is not Guid current || !Has("View") || !Has("ViewFinancials")) return;
+        var version=generation;
+        _=details.ScheduleAsync(false,()=>Busy,async ct=>
+        {
+            var result=await Send(new(SalesAction.View,current,value.Id),ct);
+            if(ct.IsCancellationRequested || version!=generation || Selected?.Id!=value.Id) return;
+            if(Accept(result)) SelectedDetail=result.Snapshot;
+        });
+    }
+    partial void OnCategoryChanged(SalesCategoryFilter? value)=>Schedule(false);
+    partial void OnNumberTextChanged(string? oldValue,string newValue)
+    {if(MasterSearch.Query(oldValue)!=MasterSearch.Query(newValue)) Schedule(MasterSearch.Query(newValue).Length>0);}
+    partial void OnCustomerTextChanged(string? oldValue,string newValue)
+    {if(MasterSearch.Query(oldValue)!=MasterSearch.Query(newValue)) Schedule(MasterSearch.Query(newValue).Length>0);}
+    [RelayCommand]
+    private void ResetFilters()
+    {
+        SearchText=NumberText=CustomerText="";
+        Status=Statuses[SalesInvoiceView.Rule("Filters.Status").Default switch {"Finalized"=>1,"Draft"=>2,_=>0}];
+        Category=Categories[SalesInvoiceView.Rule("Filters.Category").Default switch {"Local"=>1,"Interstate"=>2,_=>0}];
+        Year=Customer=Series=All;
+        From=To=null;
+    }
     partial void OnSearchTextChanged(string? oldValue,string newValue)
     {if(MasterSearch.Query(oldValue)!=MasterSearch.Query(newValue)) Schedule(MasterSearch.Query(newValue).Length>0);}
     partial void OnStatusChanged(CatalogFilter? value)=>Schedule(false);
@@ -112,8 +280,12 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
     {
         if(!CanBrowse() || company is null) return;
         var version=generation;
-        SalesRequest Filter()=>new(SalesAction.List,company,Search:MasterSearch.Query(SearchText),Finalized:Status?.Value,
-            Year:Id(Year),Customer:Id(Customer),Series:Id(Series),From:Date(From),To:Date(To));
+        bool Show(string id)=>SalesInvoiceView.VisibleRule("Filters."+id);
+        SalesRequest Filter()=>new(SalesAction.List,company,Search:Show("Search")?MasterSearch.Query(SearchText):null,
+            Finalized:Show("Status")?Status?.Value:null,Year:Show("Year")?Id(Year):null,Series:Show("Series")?Id(Series):null,
+            From:Show("From")?Date(From):null,To:Show("To")?Date(To):null,Category:Show("Category")?Category?.Value:null,
+            InvoiceNumberSearch:Show("Number")?MasterSearch.Query(NumberText):null,
+            CustomerSearch:Show("Customer")?MasterSearch.Query(CustomerText):null);
         var filter=Filter();
         if(filter.From>filter.To){Message="Choose a date range with From on or before To.";return;}
         Busy=true;
@@ -171,7 +343,7 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
         new InvoicePreviewWindow(model,false,false,false,(_,_)=>Task.FromResult(new SalesResult(CompanyOutcome.Forbidden))).ShowDialog();
         return null;
     }
-    private async Task OpenRecord(SalesRow? row,bool readOnly)
+    private async Task OpenRecord(SalesRow? row,bool readOnly,bool openGstReview=false)
     {
         if(company is not Guid current || options is null) return;
         var version=generation;
@@ -180,7 +352,47 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
         Busy=true;
         try
         {
-            var data=row is null?new SalesResult(CompanyOutcome.Success,Draft:new(DateOnly.FromDateTime(DateTime.Today))):
+            SalesEntryDetails? entry=null;
+            if(row is null && options.GraftexEntry)
+            {
+                var chooser=new MeasureEditorDialog("Select Sale Type",false)
+                    {Title="Select Sale Type",Owner=System.Windows.Application.Current.MainWindow,
+                        MinWidth=380,MinHeight=230,Width=440,Height=250};
+                var selection=new ListView {ItemsSource=new[]{"Local Sale / Intra-State","Inter-State Sale"},
+                    SelectionMode=SelectionMode.Single,MinHeight=76};
+                var itemStyle=new Style(typeof(ListViewItem));
+                itemStyle.Setters.Add(new Setter(Control.PaddingProperty,new Thickness(10,8,10,8)));
+                itemStyle.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty,HorizontalAlignment.Stretch));
+                selection.ItemContainerStyle=itemStyle;
+                chooser.AddField("Select a sale type to continue",selection,null);
+                var proceed=chooser.FooterButton("Continue");
+                proceed.IsEnabled=false;
+                proceed.IsDefault=true;
+                selection.SelectionChanged+=(_,_)=>proceed.IsEnabled=selection.SelectedIndex>=0;
+                void ContinueWithSelection()
+                {
+                    if(selection.SelectedIndex<0 || entry is not null) return;
+                    entry=new(selection.SelectedIndex==0?SalesIntent.Local:SalesIntent.Interstate,"Cash");
+                    chooser.Close();
+                }
+                proceed.Click+=(_,_)=>ContinueWithSelection();
+                selection.PreviewKeyDown+=(_,args)=>
+                {
+                    if(args.Key!=Key.Enter || selection.SelectedIndex<0) return;
+                    args.Handled=true;
+                    ContinueWithSelection();
+                };
+                selection.MouseDoubleClick+=(_,args)=>
+                {
+                    if(args.ChangedButton!=MouseButton.Left || args.OriginalSource is not DependencyObject source ||
+                        ItemsControl.ContainerFromElement(selection,source) is not ListViewItem {IsSelected:true}) return;
+                    args.Handled=true;
+                    ContinueWithSelection();
+                };
+                chooser.ShowDialog();
+                if(entry is null) return;
+            }
+            var data=row is null?new SalesResult(CompanyOutcome.Success,Draft:new(DateOnly.FromDateTime(DateTime.Today),EntryDetails:entry)):
                 await Send(new(SalesAction.View,current,row.Id));
             if(version!=generation || !Accept(data)) return;
             row=data.Row;
@@ -235,7 +447,7 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
                 if(result.Outcome==CustomerOutcome.SessionRequired) Accept(new(CompanyOutcome.SessionRequired));
                 return result;
             },
-            access.Allows("Customer.View",current) && access.Allows("Customer.Edit",current));
+            access.Allows("Customer.View",current) && access.Allows("Customer.Edit",current),openGstReview);
             dialog.ShowDialog();
             if(finalize is not null && version==generation) await FinalizeRecordAsync(current,finalize,version);
         }
@@ -256,39 +468,50 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
         if(company is not Guid current || Selected is not {} row) return;
         Busy=true;
         var version=generation;
-        try {await FinalizeRecordAsync(current,row,version);}
+        bool reviewRequired;
+        try {reviewRequired=await FinalizeRecordAsync(current,row,version);}
         finally {Busy=false;}
-        if(version==generation) await LoadList(CancellationToken.None);
+        if(version!=generation) return;
+        if(reviewRequired && Has("EditDraft"))
+            await OpenRecord(row,false,openGstReview:true);
+        else await LoadList(CancellationToken.None);
     }
 
-    private async Task FinalizeRecordAsync(Guid current,SalesRow row,int version)
+    private async Task<bool> FinalizeRecordAsync(Guid current,SalesRow row,int version)
     {
             FinalizationNoticeKind=NoticeKind.Automatic;
             Message="Checking invoice for finalization…";
             var preview=await Send(new(SalesAction.PrepareFinalization,current,row.Id,row.Version));
-            if(version!=generation) return;
+            if(version!=generation) return false;
             if(preview.Outcome!=CompanyOutcome.Success || preview.Snapshot is not {} snapshot || preview.Confirmation is null)
-            { ShowFinalizationFailure(preview);return; }
+            {
+                ShowFinalizationFailure(preview);
+                return preview.FieldErrors?.Any(x=>SalesFormConfiguration.IsGstInput(x.Field))==true;
+            }
             var year=Years.FirstOrDefault(y=>y.Id==snapshot.Draft.YearId)?.Label;
             var seriesName=SeriesChoices.FirstOrDefault(x=>x.Id==snapshot.Draft.SeriesId)?.Label;
+            var place=GTS.Billing.Domain.CompanyRules.States.GetValueOrDefault(snapshot.Draft.PlaceOfSupply,
+                snapshot.Draft.PlaceOfSupply);
             var message=$"{snapshot.Seller.Name}{Environment.NewLine}Customer: {snapshot.Customer.LegalName}{Environment.NewLine}"+
                 $"Date: {snapshot.Draft.Date:d} · Year: {year} · Series: {seriesName}{Environment.NewLine}"+
                 $"Lines: {snapshot.Lines.Count} · Taxable: {snapshot.Amounts.Taxable:N2} · GST: {snapshot.Amounts.Tax:N2}{Environment.NewLine}"+
                 $"Grand total: INR {snapshot.Amounts.Total:N2}{Environment.NewLine}{Environment.NewLine}"+
-                "Finalization issues a permanent invoice number and locks the invoice. Do you want to continue?";
+                $"Confirm standard domestic supply. Place of supply: {place}. GST jurisdiction: {snapshot.Draft.Jurisdiction}."+
+                Environment.NewLine+"Finalization issues a permanent invoice number and locks the invoice. Do you want to continue?";
             Message="";
-            if(MessageBox.Show(message,"Finalize Sales Invoice?",MessageBoxButton.YesNo,MessageBoxImage.Warning,MessageBoxResult.No)!=MessageBoxResult.Yes) return;
+            if(MessageBox.Show(message,"Finalize Sales Invoice?",MessageBoxButton.YesNo,MessageBoxImage.Warning,MessageBoxResult.No)!=MessageBoxResult.Yes) return false;
             Message="Finalizing Invoice…";
             var finalized=await Send(new(SalesAction.Finalize,current,row.Id,row.Version,Confirmation:preview.Confirmation));
-            if(version!=generation) return;
+            if(version!=generation) return false;
             if(finalized.Outcome!=CompanyOutcome.Success || finalized.Row is not {Finalized:true} issued)
-            { ShowFinalizationFailure(finalized);return; }
+            { ShowFinalizationFailure(finalized);return false; }
             Message=$"Sales Invoice {issued.Number} has been finalized successfully.";
             FinalizationNoticeKind=NoticeKind.Success;
             Rows=Rows.Select(item=>item.Id==issued.Id?item with {Number=issued.Number,Finalized=true,
                 Taxable=issued.Taxable,Tax=issued.Tax,Total=issued.Total,Version=issued.Version}:item).ToArray();
             Selected=Rows.FirstOrDefault(item=>item.Id==issued.Id);
             _=ExpireSuccessAsync(Message);
+            return false;
     }
 
     private void ShowFinalizationFailure(SalesResult result)
@@ -330,3 +553,4 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
         _=>"The invoice operation could not complete. Check the development database status."
     });
 }
+public sealed record SalesCategoryFilter(string Label,SalesIntent? Value);

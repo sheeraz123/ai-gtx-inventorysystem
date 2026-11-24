@@ -123,26 +123,61 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
             draft=draft with {Transport=(draft.Transport??new("","","","","","","","")) with {PreparedBy=username}};
         if(draft?.Transport is { } transport &&
             new[]{transport.GoodsReceipt,transport.Vehicle,transport.Weight,transport.Carrier,transport.OrderThrough,
-                transport.PrivateMark,transport.Document,transport.PreparedBy}.Any(value=>value?.Length>120 || value?.Any(char.IsControl)==true))
+                transport.PrivateMark,transport.Document,transport.PreparedBy,transport.Distance,transport.TransportId}
+                .Any(value=>value?.Length>120 || value?.Any(char.IsControl)==true))
             return Reject("Enter single-line transport and order details of up to 120 characters per field.");
+        if(draft?.EntryDetails is { } entry && (entry.Intent is { } intent && !Enum.IsDefined(intent) ||
+            entry.PaymentMode is not ("" or "Cash" or "Credit") ||
+            new[]{entry.Tcs,entry.Reversal,entry.Ern}.Any(value=>value?.Length>120 || value?.Any(char.IsControl)==true)))
+            return Reject("Review the sale type, payment mode and optional invoice references.");
         if(draft is null || draft.Lines?.Count>250 ||
             new[]{draft.PurchaseOrder,draft.Reference,draft.Terms,draft.Notes,draft.InternalRemarks,draft.PlaceOfSupply}.Any(x=>x.Length>4000))
             return Reject("Enter an invoice date and review the field lengths.");
         var companySettings=await SettingsStore.ReadCompanyAsync(db,company.Id,ct);
         var form=SalesFormConfiguration.From(companySettings);
-        if(draft.PlaceOfSupply.Length==0 &&
-            draft.Jurisdiction==GstJurisdiction.Unresolved && !draft.DomesticConfirmed &&
+        var gstReviewMode=companySettings.Get(SettingsRegistry.SalesGstReviewMode);
+        bool CanCompleteGstReview(string place,GstJurisdiction jurisdiction)=>
+            (draft.PlaceOfSupply.Length==0 || draft.PlaceOfSupply==place) &&
+            (draft.Jurisdiction==GstJurisdiction.Unresolved || draft.Jurisdiction==jurisdiction) &&
+            (draft.PlaceOfSupply.Length==0 || draft.Jurisdiction==GstJurisdiction.Unresolved || !draft.DomesticConfirmed);
+        if(gstReviewMode!="Manual review" &&
             companySettings.Get(SettingsRegistry.ReviewedSalesGstPlace) is { Length:>0 } defaultPlace &&
             Enum.TryParse<GstJurisdiction>(companySettings.Get(SettingsRegistry.ReviewedSalesGstJurisdiction),out var defaultJurisdiction) &&
-            defaultJurisdiction!=GstJurisdiction.Unresolved)
+            defaultJurisdiction!=GstJurisdiction.Unresolved &&
+            CanCompleteGstReview(defaultPlace,defaultJurisdiction) &&
+            (draft.EntryDetails?.Intent is not { } selectedIntent ||
+                (selectedIntent==SalesIntent.Interstate)==(defaultJurisdiction==GstJurisdiction.Interstate)) &&
+            await Registrations.AnyAsync(x=>x.Id==draft.RegistrationId && x.IsActive &&
+                (defaultJurisdiction==GstJurisdiction.Interstate?x.StateCode!=defaultPlace:x.StateCode==defaultPlace),ct))
             draft=draft with {PlaceOfSupply=defaultPlace,Jurisdiction=defaultJurisdiction,DomesticConfirmed=true};
+        if(finalization && gstReviewMode=="Company workflow" && draft.EntryDetails?.Intent==SalesIntent.Local &&
+            CanCompleteGstReview(GraftexLocalState,GstJurisdiction.IntraState) &&
+            SalesFormConfiguration.UsesGraftex(companySettings.Get(SalesFormConfiguration.EntryProfile),company.Code,company.LegalName) &&
+            await CanReviewGraftexLocalSaleAsync(draft,ct))
+            draft=draft with {PlaceOfSupply=GraftexLocalState,Jurisdiction=GstJurisdiction.IntraState,DomesticConfirmed=true};
+
+        // Finalization presents the resolved facts for explicit confirmation and rechecks
+        // the same snapshot before assigning a number. The draft checkbox is optional here.
+        if(finalization && gstReviewMode!="Manual review" && !form.Field("TaxDetails").Required &&
+            !draft.DomesticConfirmed && CompanyRules.States.ContainsKey(draft.PlaceOfSupply) &&
+            draft.Jurisdiction is GstJurisdiction.IntraState or GstJurisdiction.IntraUnionTerritory or GstJurisdiction.Interstate)
+            draft=draft with {DomesticConfirmed=true};
+
         var requiredFields=draft.RequiredFields(requireNumbering:request.Action!=SalesAction.Preview);
         var gstPending=requiredFields.Any(error=>SalesFormConfiguration.IsGstInput(error.Field));
-        if(gstPending && !finalization)
+        var requireGstForDraft=request.Action==SalesAction.Save && form.Field("TaxDetails").Required;
+        if(gstPending && !finalization && !requireGstForDraft)
             requiredFields=requiredFields.Where(error=>!SalesFormConfiguration.IsGstInput(error.Field)).ToArray();
-        if(requiredFields.Count>0) return Reject(gstPending && finalization
-            ?"GST review is incomplete. Edit the draft and use Review GST details, or configure reviewed company GST defaults where applicable."
-            :requiredFields[0].Message,requiredFields);
+        if(requiredFields.Count>0)
+        {
+            var message=gstPending && (finalization || requireGstForDraft)
+                ?"GST details could not be resolved from the invoice and company setup. Use Review GST details or check Settings → Sales Defaults."
+                :requiredFields[0].Message;
+            if(finalization && gstReviewMode!="Manual review" && !form.Field("TaxDetails").Required &&
+                requiredFields.Any(error=>error.Field is nameof(SalesDraft.PlaceOfSupply) or nameof(SalesDraft.Jurisdiction)))
+                requiredFields=requiredFields.Where(error=>error.Field!=nameof(SalesDraft.DomesticConfirmed)).ToArray();
+            return Reject(message,requiredFields);
+        }
         var formErrors=form.ValidateDraft(draft,row is null?null:ReadDraft(row));
         if(formErrors.Count>0) return Reject(formErrors[0].Message,formErrors);
         if(request.Action==SalesAction.Save && row is null && request.CreateDraftId is Guid draftId)
@@ -205,21 +240,79 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
         return new(CompanyOutcome.Success,company.Id,CustomerAddresses:new(customer.Id,customer.Version,customer.LegalName,customer.Gstin,addresses));
     }
 
+    private const string GraftexLocalState="03"; // Punjab
+
+    private async Task<bool> CanReviewGraftexLocalSaleAsync(SalesDraft draft,CancellationToken ct)
+    {
+        const string Punjab=GraftexLocalState;
+        if(draft.CustomerId is not Guid customer || draft.Lines is not {Count:>0} ||
+            company.RegistrationType!="Regular") return false;
+        if(!await Registrations.AnyAsync(x=>x.Id==draft.RegistrationId && x.IsActive && x.StateCode==Punjab,ct))
+            return false;
+        var buyer=await Customers.SingleOrDefaultAsync(x=>x.Id==customer,ct);
+        if(buyer is null || !string.IsNullOrWhiteSpace(buyer.SupplyClassification) ||
+            !string.IsNullOrWhiteSpace(buyer.ExemptionNotes)) return false;
+        var eligible=buyer.RegistrationType switch
+        {
+            "Regular"=>(string.IsNullOrEmpty(buyer.GstStateCode) || buyer.GstStateCode==Punjab) &&
+                buyer.Gstin?.StartsWith(Punjab,StringComparison.Ordinal)==true,
+            "Unregistered" or "Consumer"=>string.IsNullOrWhiteSpace(buyer.Gstin),
+            _=>false
+        };
+        if(!eligible) return false;
+        var result=await CustomerStore.Snapshot(db,buyer,new(company.Id,company.Code,company.LegalName),
+            new(draft.BillingAddressId,draft.ShippingAddressId),ct);
+        if(result.Snapshot is not {BillTo:{Country:"IN",StateCode:Punjab},ShipTo:{Country:"IN",StateCode:Punjab}})
+            return false;
+        var products=draft.Lines.Select(x=>x.ProductId).Distinct().ToArray();
+        return await Products.CountAsync(x=>products.Contains(x.Id) && x.Kind=="Goods",ct)==products.Length;
+    }
+
     private async Task<SalesResult> List(SalesRequest request,CancellationToken ct)
     {
         var search=CatalogRules.Normalize(request.Search);
         if(search.Length<3) search="";
-        var rows=await Invoices.Where(x=>(request.Finalized==null || (x.LedgerId!=null)==request.Finalized) &&
+        var number=CatalogRules.Normalize(request.InvoiceNumberSearch);
+        var customer=CatalogRules.Normalize(request.CustomerSearch);
+        var query=Invoices.Where(x=>(request.Finalized==null || (x.LedgerId!=null)==request.Finalized) &&
             (request.Year==null || x.FinancialYearId==request.Year) && (request.Series==null || x.SeriesId==request.Series) &&
             (request.Customer==null || x.CustomerId==request.Customer) &&
             (request.From==null || x.Date>=request.From) && (request.To==null || x.Date<=request.To) &&
+            (number.Length<3 || x.Number!=null && x.Number.ToUpper().Contains(number)) &&
+            (customer.Length<3 || x.CustomerName.ToUpper().Contains(customer) ||
+                Customers.Any(c=>c.Id==x.CustomerId && c.Code.ToUpper().Contains(customer))) &&
             (search=="" || x.Number!=null && x.Number.ToUpper().Contains(search) || x.CustomerName.ToUpper().Contains(search) ||
              x.PurchaseOrder.ToUpper().Contains(search) || x.Reference.ToUpper().Contains(search)))
             .OrderByDescending(x=>x.Date).ThenByDescending(x=>x.UpdatedUtc).Take(500)
-            .Select(x=>new SalesRow(x.Id,x.Version,x.Date,x.Number,x.CustomerName,
+            .Select(x=>new {x.DraftJson,FrozenJson=x.LedgerId==null?null:db.Set<InvoiceSnapshot>()
+                .Where(s=>s.CompanyId==x.CompanyId && s.LedgerId==x.LedgerId).Select(s=>s.SnapshotJson).FirstOrDefault(),
+                Row=new SalesRow(x.Id,x.Version,x.Date,x.Number,x.CustomerName,
                 Years.Where(y=>y.Id==x.FinancialYearId).Select(y=>y.Code).FirstOrDefault()??"",
-                Series.Where(s=>s.Id==x.SeriesId).Select(s=>s.Code).FirstOrDefault()??"",x.Taxable,x.Tax,x.Total,x.LedgerId!=null))
-            .ToArrayAsync(ct);
+                Series.Where(s=>s.Id==x.SeriesId).Select(s=>s.Code).FirstOrDefault()??"",x.Taxable,x.Tax,x.Total,x.LedgerId!=null,
+                null)});
+        if(request.Category is null) query=query.Take(500);
+        var rows=new List<SalesRow>();
+        await foreach(var item in query.AsAsyncEnumerable().WithCancellation(ct))
+        {
+            SalesIntent? intent=null;
+            try
+            {
+                var draft=item.Row.Finalized
+                    ?item.FrozenJson is { } json?JsonSerializer.Deserialize<SalesInvoiceSnapshot>(json)?.Draft:null
+                    :JsonSerializer.Deserialize<SalesDraft>(item.DraftJson);
+                if(draft is not null)
+                    intent=draft.Jurisdiction switch
+                    {
+                        GstJurisdiction.IntraState or GstJurisdiction.IntraUnionTerritory=>SalesIntent.Local,
+                        GstJurisdiction.Interstate=>SalesIntent.Interstate,
+                        _=>item.Row.Finalized?null:draft.EntryDetails?.Intent
+                    };
+            }
+            catch(JsonException) { }
+            if(request.Category is not null && request.Category!=intent) continue;
+            rows.Add(item.Row with {Intent=intent});
+            if(rows.Count==500) break;
+        }
         return new(CompanyOutcome.Success,company.Id,Rows:rows);
     }
 
@@ -229,14 +322,22 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
             .ToArrayAsync(ct)).Select(x=>new SalesChoice(x.Id,x.Code+(x.Status=="Closed"?" (closed)":""),
                 Preferred:x.IsCurrent,Active:x.Status=="Open",From:x.Start,To:x.End)).ToArray();
         var series=(await Series.Where(x=>x.DocumentType=="TaxInvoice").OrderBy(x=>x.Code)
-            .Select(x=>new {x.Id,x.Code,x.Name,x.IsActive,x.FinancialYearId,x.GstRegistrationId,x.IsDefault}).ToArrayAsync(ct))
+            .Select(x=>new {x.Id,x.Code,x.Name,x.IsActive,x.FinancialYearId,x.GstRegistrationId,x.IsDefault,
+                x.Prefix,x.Suffix,x.Separator,x.Padding,x.StartingNumber,
+                YearCode=Years.Where(y=>y.Id==x.FinancialYearId).Select(y=>y.Code).FirstOrDefault(),
+                Counter=db.Set<NumberCounter>().Where(n=>n.CompanyId==company.Id && n.SeriesId==x.Id &&
+                    n.FinancialYearId==x.FinancialYearId).Select(n=>(long?)n.NextNumber).SingleOrDefault()}).ToArrayAsync(ct))
             .Select(x=>new SalesChoice(x.Id,x.Code+" — "+x.Name+(x.IsActive?"":" (inactive)"),x.FinancialYearId,x.GstRegistrationId,
-                Preferred:x.IsDefault,Active:x.IsActive)).ToArray();
+                Preferred:x.IsDefault,Active:x.IsActive,NextNumberPreview:PreviewNumber(x.Code,x.Prefix,x.Suffix,x.Separator,
+                    x.Padding,x.YearCode,x.Counter??x.StartingNumber))).ToArray();
         var registrations=(await Registrations.OrderByDescending(x=>x.IsInvoiceDefault)
             .Select(x=>new {x.Id,x.Gstin,x.IsInvoiceDefault,x.IsActive}).ToArrayAsync(ct))
             .Select(x=>new SalesChoice(x.Id,x.Gstin+(x.IsActive?"":" (inactive)"),Preferred:x.IsInvoiceDefault,Active:x.IsActive)).ToArray();
-        var customers=await Customers.OrderBy(x=>x.LegalName).Select(x=>new SalesChoice(x.Id,
-            x.Code+" — "+x.LegalName+(x.Status=="Active"?"":" ("+x.Status+")"),null,null)).ToArrayAsync(ct);
+        var customerRows=await Customers.OrderBy(x=>x.LegalName)
+            .Select(x=>new {x.Id,x.Code,x.LegalName,x.Status,x.PurchaseOrderRequired}).ToArrayAsync(ct);
+        var customers=customerRows.Select(x=>new SalesChoice(x.Id,
+            x.Code+" — "+x.LegalName+(x.Status=="Active"?"":" ("+x.Status+")"),
+            PurchaseOrderRequired:x.PurchaseOrderRequired)).ToArray();
         var addresses=db.Set<CustomerAddress>().Where(x=>x.CompanyId==company.Id && x.IsActive);
         var billing=await addresses.Where(x=>x.AddressType=="Billing" || x.AddressType=="Both")
             .Select(x=>new SalesChoice(x.Id,x.Label+" — "+x.City,x.CustomerId,null)).ToArrayAsync(ct);
@@ -275,9 +376,20 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
         var attributes=(await VariantAttributesAsync(ct)).ToLookup(x=>x.VariantId,x=>x.Value);
         var variantChoices=variants.Select(x=>new SalesVariantChoice(x.Id,x.ProductId,x.Code,x.Sku,x.Barcode,
             string.Join(" / ",attributes[x.Id].Select(a=>a.Name)),x.Mrp,x.SalesRate,x.Active)).ToArray();
+        var entrySettings=await SettingsStore.ReadCompanyAsync(db,company.Id,ct);
+        var graftex=SalesFormConfiguration.UsesGraftex(entrySettings.Get(SalesFormConfiguration.EntryProfile),company.Code,company.LegalName);
+        var form=SalesFormConfiguration.From(entrySettings);
         return new(CompanyOutcome.Success,company.Id,Options:new(years,series,registrations,customers,billing,shipping,products,
             units,company.LegalName,await TaxChoicesAsync(ct),canFillMrp,canLinkTax,variantChoices,
-            SalesFormConfiguration.From(await SettingsStore.ReadCompanyAsync(db,company.Id,ct)),username));
+            graftex?form.ApplyGraftexDefaults():form,username,entrySettings.Get(SalesFormConfiguration.EntryLayout),graftex));
+    }
+
+    private string? PreviewNumber(string code,string prefix,string suffix,string separator,int padding,string? year,long sequence)
+    {
+        if(year is null || sequence<1) return null;
+        var format=DocumentNumberFormat.Create(new(Code:code,Prefix:prefix,Suffix:suffix,Separator:separator,Padding:padding),
+            company.Code,year);
+        return format is not null && sequence<=format.Maximum?format.Render(sequence):null;
     }
 
     private sealed record VariantAttributeRow(Guid VariantId,VariantAttributeSnapshot Value);
@@ -412,6 +524,9 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
         if(buyer.Currency!="INR" || buyer.BillTo.Country!="IN" || buyer.ShipTo.Country!="IN")
             return Invalid("Stage 5A supports domestic addresses and INR invoices only.");
         var gst=await Registrations.SingleAsync(x=>x.Id==draft.RegistrationId,ct);
+        if(!gstPending && draft.EntryDetails?.Intent is { } intent &&
+            (intent==SalesIntent.Interstate)!=(draft.Jurisdiction==GstJurisdiction.Interstate))
+            return FieldError(nameof(draft.Jurisdiction),"The reviewed GST jurisdiction differs from the selected sale type. Review GST details.");
         if(!gstPending && (!CompanyRules.States.ContainsKey(draft.PlaceOfSupply) || !draft.DomesticConfirmed ||
             (draft.Jurisdiction is GstJurisdiction.IntraState or GstJurisdiction.IntraUnionTerritory) && draft.PlaceOfSupply!=gst.StateCode ||
             draft.Jurisdiction==GstJurisdiction.Interstate && draft.PlaceOfSupply==gst.StateCode))
@@ -421,8 +536,12 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
             where link.CompanyId==company.Id && link.GstRegistrationId==gst.Id
             orderby a.IsDefaultBilling descending,a.Id
             select a).ToArrayAsync(ct);
-        var selectedAddress=address.Length==1?address[0]:address.SingleOrDefault(x=>x.IsDefaultBilling);
-        if(selectedAddress is null) return FieldError(nameof(draft.RegistrationId),"Configure one unambiguous billing address for the supplier GST registration.");
+        if(address.Length==0) return FieldError(nameof(draft.RegistrationId),
+            "In Company Master, edit the selected GST registration and choose Link the default company billing address.");
+        var defaults=address.Where(x=>x.IsDefaultBilling).ToArray();
+        var selectedAddress=address.Length==1?address[0]:defaults.Length==1?defaults[0]:null;
+        if(selectedAddress is null) return FieldError(nameof(draft.RegistrationId),
+            "The selected supplier GST registration has multiple linked addresses. Set exactly one linked address as Default Billing in Company Master.");
         var settings=await db.Set<CompanySettings>().SingleOrDefaultAsync(x=>x.CompanyId==company.Id,ct);
         var companyResult=await CompanyPresentationStore.Snapshot(db,company,settings,
             db.Set<BrandingAsset>().Where(x=>x.CompanyId==company.Id),db.Set<CompanyBankAccount>().Where(x=>x.CompanyId==company.Id),
@@ -474,7 +593,8 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
             if(validation.Count>0) return Invalid(validation[0].Message) with {FieldErrors=validation};
             if(gstPending)
             {
-                estimates.Add(SalesCalculation.Estimate(line,tax));
+                estimates.Add(SalesCalculation.Estimate(line,tax,
+                    draft.Jurisdiction==GstJurisdiction.IntraUnionTerritory?null:draft.EntryDetails?.Intent));
                 continue;
             }
             var determination=GstDetermination.Determine(tax,new(gst.Id,buyer.CustomerId,draft.PlaceOfSupply,draft.Date,
