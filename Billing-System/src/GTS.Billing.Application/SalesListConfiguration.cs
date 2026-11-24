@@ -24,7 +24,8 @@ public static class SalesListConfiguration
         Item(Columns,"Year","Financial year",70,false,110),Item(Columns,"Series","Series",80,false,105),
         Item(Columns,"Taxable","Taxable value",90,false,115),Item(Columns,"Tax","GST",100,false,105),
         Item(Actions,"New","New invoice",10),Item(Actions,"View","View",20),Item(Actions,"PrintPreview","Print preview",30),
-        Item(Actions,"Edit","Edit draft",40),Item(Actions,"Finalize","Finalize draft",50),Item(Actions,"Refresh","Refresh",60)
+        Item(Actions,"Edit","Edit draft",40),Item(Actions,"Finalize","Finalize draft",50),Item(Actions,"Refresh","Refresh",60),
+        Item(Actions,"DeleteDraft","Delete draft",70),Item(Actions,"CancelInvoice","Cancel invoice",80)
     ];
 
     private static SettingKey<Rule> Item(string section,string id,string caption,int order,bool visible=true,int width=0)
@@ -49,7 +50,7 @@ public static class SalesListConfiguration
                 fallback.Length>0 && (section!=Filters || id switch
                 {
                     "Category"=>fallback is not ("All" or "Local" or "Interstate"),
-                    "Status"=>fallback is not ("All" or "Draft" or "Finalized"),
+                    "Status"=>fallback is not ("All" or "Draft" or "Finalized" or "Cancelled"),
                     _=>true
                 })) return (false,baseline);
             return (true,new(parts[0]=="show",rank,parts[2],pixels,fallback));

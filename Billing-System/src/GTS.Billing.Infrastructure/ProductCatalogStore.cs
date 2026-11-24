@@ -217,7 +217,7 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
 
     internal static async Task<CatalogResult> ProductAsync(BillingDbContext db, CatalogRequest request, Guid company, Guid actor,
         IQueryable<ProductCategory> categories, IQueryable<Product> products, byte[]? image,
-        bool canChangeStatus,bool canEditPricing,CancellationToken ct)
+        bool canChangeStatus,bool canEditPricing,CancellationToken ct,bool allowUnlinkedTax=false)
     {
         // Load the bounded image payload only for a single master detail.
         var product = request.Id is Guid id ? await products.SingleOrDefaultAsync(x => x.Id == id, ct) : null;
@@ -321,7 +321,9 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
             if (request.TaxDate is DateOnly date)
             {
                 var resolved=await new CompanyTaxCatalog(db,company).ResolveProductAsync(product,date,ct);
-                if(resolved.Outcome!=CompanyOutcome.Success)
+                if(resolved.Outcome!=CompanyOutcome.Success &&
+                    !(allowUnlinkedTax && resolved.Outcome==CompanyOutcome.InvalidInput &&
+                        !await db.Set<ProductTaxProfile>().AnyAsync(x=>x.CompanyId==company && x.ProductId==product.Id,ct)))
                 {
                     var error=resolved.Message??"Choose an applicable HSN/SAC and GST profile.";
                     return new(resolved.Outcome,Message:error,Errors:new Dictionary<string,string>{{"TaxAssignment",error}});

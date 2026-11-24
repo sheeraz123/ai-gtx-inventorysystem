@@ -9,10 +9,9 @@ public sealed record SalesFormRule(string Label="",string Placeholder="",string 
 public sealed record SalesFormField(string Key,string Section,string Title,int Order,bool Critical=false,bool Input=false,
     bool TextDefault=false,bool Output=false,bool IsSection=false)
 {
-    public SalesFormRule Baseline=>new(Title,Order:Order,Required:Critical && Key!="TaxDetails",ReadOnly:!Input);
-    public bool CanChooseRequired=>TextDefault || Key=="TaxDetails";
-    public bool CanCollapseForReview=>Key=="TaxDetails" || Section=="TaxDetails";
-    public bool CanHideInEntry=>!Critical || CanCollapseForReview ||
+    public SalesFormRule Baseline=>new(Title,Order:Order,Required:Critical,ReadOnly:!Input);
+    public bool CanChooseRequired=>TextDefault;
+    public bool CanHideInEntry=>!Critical ||
         Key is "Company" or "ProductName" or "Inclusive" or "UnitId" or "Total" or "GrandTotal";
     public SettingKey<SalesFormRule> Setting=>new("SalesForm."+Key,SalesFormConfiguration.Section,Title,
         "Configure the field from the Sales Invoice layout editor.",SettingScope.Company,SettingKind.Text,Baseline,Parse,
@@ -67,7 +66,7 @@ public sealed record SalesFormConfiguration(ImmutableDictionary<string,SalesForm
     public SalesFormConfiguration ApplyGraftexDefaults()
     {
         var rules=Rules.ToBuilder();
-        foreach(var key in new[]{"Company","TaxDetails","ProductCode","Sku","Brand","Gross","Gst","TaxAmount",
+        foreach(var key in new[]{"Company","ProductCode","Sku","Brand","Gross","Gst","TaxAmount",
             "ProductName","Inclusive","AppliedDiscount","Reference","Terms","Notes","InternalRemarks","PurchaseOrder","PurchaseOrderDate","DueDate"})
             if(!rules.ContainsKey(key)) rules[key]=Field(key) with {Visible=false};
         string[] columns=["ProductId","Mrp","Hsn","Quantity","Price","UnitId","DiscountPercent","DiscountAmount",
@@ -92,7 +91,6 @@ public sealed record SalesFormConfiguration(ImmutableDictionary<string,SalesForm
         new("CustomerDetails","","Customer",20,true,true,IsSection:true),
         new("BillingDetails","Addresses","Billing Address",30,true,true,IsSection:true),
         new("ShippingDetails","Addresses","Shipping Address",40,true,true,IsSection:true),
-        new("TaxDetails","","GST treatment",50,true,true,IsSection:true),
         new("Products","","Products",60,true,true,IsSection:true),
         new("AdditionalDetails","","Payment, transport and notes",70,Input:true,IsSection:true),
         new("Summary","Summary","Invoice summary",80,true,true,IsSection:true),
@@ -112,9 +110,6 @@ public sealed record SalesFormConfiguration(ImmutableDictionary<string,SalesForm
         new("EditBilling","Addresses","Edit billing address",40),
         new("EditShipping","Addresses","Edit shipping address",50),
         new("CustomerGstin","Addresses","GSTIN",60),
-        new("PlaceOfSupply","TaxDetails","Reviewed place of supply",10,true,true),
-        new("Jurisdiction","TaxDetails","GST jurisdiction",20,true,true),
-        new("DomesticConfirmed","TaxDetails","Standard domestic supply reviewed",30,true,true),
         new("ProductId","Products","Product search",10,true,true),
         new("VariantId","Products","Variant",20,true,true),
         new("ProductCode","Products","Product code",30,Output:true),
@@ -171,9 +166,6 @@ public sealed record SalesFormConfiguration(ImmutableDictionary<string,SalesForm
         .ToImmutableDictionary(x=>x.Field.Key,x=>x.Rule,StringComparer.Ordinal));
     public string Caption(string key,string fallback)=>Rules.TryGetValue(key,out var rule)?rule.Label:fallback;
     public bool ShowOutput(string key,bool preview)=>!Rules.TryGetValue(key,out var rule) || (preview?rule.Preview:rule.Print);
-    public static bool IsGstInput(string key)=>
-        key is nameof(SalesDraft.PlaceOfSupply) or nameof(SalesDraft.Jurisdiction) or nameof(SalesDraft.DomesticConfirmed);
-    public const string GstReviewPendingMessage="GST values shown are estimates. Review GST details to confirm the place of supply and jurisdiction before finalizing.";
     public SalesFormField? HiddenRequiredField()=>Field("AdditionalDetails").Visible?null:
         Fields.FirstOrDefault(field=>field.Section=="AdditionalDetails" && Field(field.Key).Required);
 

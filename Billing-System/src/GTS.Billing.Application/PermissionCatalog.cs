@@ -76,6 +76,8 @@ public static class PermissionCatalog
         new("SalesInvoice.Create","Sales Invoice","invoice","Create"),
         new("SalesInvoice.EditDraft","Sales Invoice","invoice","Edit"),
         new("SalesInvoice.Finalize","Sales Invoice","invoice","ManageSettings"),
+        new("SalesInvoice.DeleteDraft","Sales Invoice","invoice","Delete"),
+        new("SalesInvoice.CancelInvoice","Sales Invoice","invoice","Cancel"),
         new("SalesInvoice.ViewFinancials","Sales Invoice","invoice","ViewReports"),
         new("SalesInvoice.Print","Sales Invoice","invoice","Print"),
         new("SalesInvoice.ExportPdf","Sales Invoice","invoice","Export"),

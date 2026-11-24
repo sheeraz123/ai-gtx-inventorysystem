@@ -142,11 +142,6 @@ internal sealed class SalesFormConfigurationDialog : Window
         var order=dialog.Text("Display order",current.Order.ToString(),4);
         var value=dialog.Text("Default value",current.Default,140,locked:!field.TextDefault);
         var visible=Choice("Show in entry",current.Visible,!field.CanHideInEntry);
-        if(field.Key=="TaxDetails")
-            dialog.ShowMessage("Required controls whether GST review must be complete to save a draft. Finalization uses reviewed GST details or matching company defaults.",NoticeKind.Information);
-        else if(field.CanCollapseForReview)
-            dialog.ShowMessage(readOnly?"View mode. Select Edit configuration to change visibility.":
-                "Choose No to hide this control during normal entry. Use Review GST details to edit it. GST review remains required.",NoticeKind.Information);
         var required=Choice("Required",current.Required,!field.CanChooseRequired);
         var locked=Choice("Read-only",current.ReadOnly,!field.TextDefault || field.Key=="PurchaseOrder");
         var validate=Choice("Validate configured requirement",current.Validate,!field.TextDefault);

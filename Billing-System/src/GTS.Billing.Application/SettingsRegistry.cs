@@ -192,20 +192,9 @@ public static partial class SettingsRegistry
         ReorderWarning,LowStockWarning,TaxPlaces,TaxSummary,Printer,Paper,Orientation,Copies,Preview,PageNumbers,PrintTime,CopyLabel,HeaderSpacing,FooterSpacing,InvoiceTemplate
     ];
 
-    public static readonly SettingKey<string> ReviewedSalesGstPlace=Choice("Sales.GstReviewedPlace",Sales,
-        "Automatic GST confirmation — reviewed place of supply","",Company,
-        ["",..GTS.Billing.Domain.CompanyRules.States.Keys.Order()],InvoiceEdit);
-    public static readonly SettingKey<string> ReviewedSalesGstJurisdiction=Choice("Sales.GstReviewedJurisdiction",Sales,
-        "Automatic GST confirmation — reviewed jurisdiction","Unresolved",Company,
-        ["Unresolved","IntraState","IntraUnionTerritory","Interstate"],InvoiceEdit);
-    public static readonly SettingKey<string> SalesGstReviewMode=Choice("Sales.GstReviewMode",Sales,
-        "GST review mode","Company workflow",Company,
-        ["Company workflow","Reviewed defaults only","Manual review"],InvoiceEdit);
-
     public static readonly ImmutableArray<SettingDefinition> Definitions=Core.Concat(PrintMargins).Concat(OptionalSections).Concat(GridLayouts)
         .Concat([ShellTheme,NavigationPosition,InvoiceListLayout,InvoiceFilterArrangement,InvoiceActionArrangement])
         .Concat(SalesListConfiguration.Items)
-        .Concat([SalesGstReviewMode,ReviewedSalesGstPlace,ReviewedSalesGstJurisdiction])
         .Concat(LoginPage.Keys.Values)
         .Concat(SalesFormConfiguration.Fields.Select(x=>x.Setting))
         .Concat([SalesFormConfiguration.EntryLayout,SalesFormConfiguration.EntryProfile])

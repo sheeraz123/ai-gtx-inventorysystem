@@ -2,7 +2,7 @@ using GTS.Billing.Domain;
 
 namespace GTS.Billing.Application;
 
-public enum SalesAction { List, Options, View, Preview, Save, Finalize, PrintPreview, Print, PrintToPdf, CustomerAddresses, PrepareFinalization }
+public enum SalesAction { List, Options, View, Preview, Save, Finalize, PrintPreview, Print, PrintToPdf, CustomerAddresses, PrepareFinalization, DeleteDraft, CancelInvoice }
 public sealed record SalesChoice(Guid Id,string Label,Guid? Scope=null,Guid? SecondaryScope=null,decimal? Price=null,bool Inclusive=false,
     string? Code=null,string? Sku=null,string? ProductName=null,string? Brand=null,decimal? Mrp=null,
     string? ProductKind=null,string? Hsn=null,decimal? GstRate=null,Guid? TaxClassificationId=null,string? TaxContext=null,
@@ -12,7 +12,8 @@ public sealed record SalesChoice(Guid Id,string Label,Guid? Scope=null,Guid? Sec
     public override string ToString()=>Label;
 }
 public sealed record SalesLineInput(Guid ProductId,Guid? UnitId,decimal Quantity,decimal Price,bool Inclusive,
-    decimal DiscountPercent=0,decimal DiscountAmount=0,Guid? ProductVariantId=null);
+    decimal DiscountPercent=0,decimal DiscountAmount=0,Guid? ProductVariantId=null,
+    string? ManualHsn=null,decimal? ManualGstRate=null);
 public sealed record SalesTransport(string GoodsReceipt, string Vehicle, string Weight, string Carrier,
     string OrderThrough, string PrivateMark, string Document, string PreparedBy,string Distance="",string TransportId="");
 public enum SalesIntent { Local, Interstate }
@@ -35,10 +36,6 @@ public sealed record SalesDraft(DateOnly Date,Guid? YearId=null,Guid? SeriesId=n
         Require(RegistrationId.HasValue,nameof(RegistrationId),"Select a supplier GST registration.");
         Require(SeriesId.HasValue || !requireNumbering,nameof(SeriesId),"Select a document series.");
         Require(CustomerId.HasValue,nameof(CustomerId),"Select a customer.");
-        Require(CompanyRules.States.ContainsKey(PlaceOfSupply),nameof(PlaceOfSupply),"Select a reviewed place of supply.");
-        Require(Jurisdiction is GstJurisdiction.IntraState or GstJurisdiction.IntraUnionTerritory or GstJurisdiction.Interstate,
-            nameof(Jurisdiction),"Select a supported GST jurisdiction.");
-        Require(DomesticConfirmed,nameof(DomesticConfirmed),"Confirm the domestic supply review.");
         Require(Lines is {Count:>0},nameof(Lines),"Add at least one product line.");
         return errors;
     }
@@ -53,11 +50,17 @@ public sealed record FinalSalesLine(int Number,SalesLineInput Input,ProductInvoi
 public sealed record SalesInvoiceSnapshot(SalesDraft Draft,CustomerInvoiceSnapshot Customer,SalesSeller Seller,
     IReadOnlyList<FinalSalesLine> Lines,SalesAmounts Amounts,string? Number=null,string? FinancialYearCode=null,string? DocumentSeriesCode=null);
 public sealed record SalesSeller(string Name,string? DisplayName,string? Phone,string? Email,string Gstin,string StateCode,
-    string Address,CompanyInvoicePresentation Presentation,string? Iec=null);
-public sealed record SalesRow(Guid Id,long Version,DateOnly Date,string? Number,string Customer,string Year,string Series,
-    decimal Taxable,decimal Tax,decimal Total,bool Finalized,SalesIntent? Intent=null)
+    string Address,CompanyInvoicePresentation Presentation,string? Iec=null,string? BusinessDescription=null,string? AlternateMobile=null)
 {
-    public string Status=>Finalized?"Finalized":"Draft";
+    public IEnumerable<string> InvoiceTaglines()=>new[]{BusinessDescription,Presentation.Options?.Tagline}
+        .Where(value=>!string.IsNullOrWhiteSpace(value)).Select(value=>value!.Trim()).Distinct(StringComparer.Ordinal);
+    public string InvoicePhones()=>string.Join(", ",new[]{Phone,AlternateMobile}
+        .Where(value=>!string.IsNullOrWhiteSpace(value)).Select(value=>value!.Trim()).Distinct(StringComparer.Ordinal));
+}
+public sealed record SalesRow(Guid Id,long Version,DateOnly Date,string? Number,string Customer,string Year,string Series,
+    decimal Taxable,decimal Tax,decimal Total,bool Finalized,SalesIntent? Intent=null,bool Cancelled=false)
+{
+    public string Status=>Cancelled?"Cancelled":Finalized?"Finalized":"Draft";
     public string TaxType=>Intent switch {SalesIntent.Local=>"Local Sale",SalesIntent.Interstate=>"Inter State Sale",_=>"Unreviewed"};
 }
 public sealed record SalesOptions(IReadOnlyList<SalesChoice> Years,IReadOnlyList<SalesChoice> Series,
@@ -96,7 +99,8 @@ public sealed record SalesRequest(SalesAction Action,Guid? Company=null,Guid? Id
     string? Search=null,bool? Finalized=null,Guid? Year=null,Guid? Customer=null,Guid? Series=null,DateOnly? From=null,DateOnly? To=null,
     string? Confirmation=null,FinalizeDocumentNumberRequest? ExpectedNumbering=null,string? PrintTemplateCode=null,
     IReadOnlyList<SalesProductCompletion>? ProductCompletions=null,Guid? CreateDraftId=null,
-    SalesIntent? Category=null,string? InvoiceNumberSearch=null,string? CustomerSearch=null);
+    SalesIntent? Category=null,string? InvoiceNumberSearch=null,string? CustomerSearch=null,
+    bool? Cancelled=null,string? CancellationReason=null);
 public sealed record SalesResult(CompanyOutcome Outcome,Guid? Company=null,string? Message=null,IReadOnlyList<SalesRow>? Rows=null,
     SalesRow? Row=null,SalesDraft? Draft=null,SalesOptions? Options=null,SalesInvoiceSnapshot? Snapshot=null,string? Confirmation=null,
     FinalizedDocumentNumber? Allocation=null,IReadOnlyList<string>? Audit=null,InvoicePrintModel? PrintModel=null,

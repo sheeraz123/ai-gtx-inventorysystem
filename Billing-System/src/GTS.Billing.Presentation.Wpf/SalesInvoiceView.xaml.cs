@@ -124,7 +124,7 @@ public partial class SalesInvoiceView : UserControl
         BillingIcon.Set(button,rule.Label,id switch
         {
             "New"=>"\uE710","View"=>"\uE890","PrintPreview"=>"\uE749","Edit"=>"\uE70F",
-            "Finalize"=>"\uE73E",_=>"\uE72C"
+            "Finalize"=>"\uE73E","DeleteDraft"=>"\uE74D","CancelInvoice"=>"\uE711",_=>"\uE72C"
         });
         button.SetBinding(Button.CommandProperty,id+"Command");
         if(id=="New" && !SystemParameters.HighContrast)
@@ -153,7 +153,8 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
     private int generation;
     private bool loaded;
     public Action? SessionExpired {get;set;}
-    public IReadOnlyList<CatalogFilter> Statuses {get;}=[new("All statuses",null),new("Finalized",true),new("Draft",false)];
+    public IReadOnlyList<SalesStatusFilter> Statuses {get;}=[new("All statuses"),new("Finalized",true,false),new("Draft",false),
+        new("Cancelled",true,true)];
     public IReadOnlyList<SalesCategoryFilter> Categories {get;}=[new("All Bills",null),new("Local Sale",SalesIntent.Local),
         new("Inter State Sale",SalesIntent.Interstate)];
     private static readonly SalesChoice All=new(Guid.Empty,"All");
@@ -169,7 +170,7 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
     [ObservableProperty] private SalesInvoiceSnapshot? _selectedDetail;
     public bool IsSplit=>SettingsDisplay.Current.Get(SettingsRegistry.InvoiceListLayout)==SalesListConfiguration.Split;
     [ObservableProperty] private string _message="";
-    [ObservableProperty] private CatalogFilter? _status;
+    [ObservableProperty] private SalesStatusFilter? _status;
     [ObservableProperty] private SalesChoice? _year;
     [ObservableProperty] private SalesChoice? _customer;
     [ObservableProperty] private SalesChoice? _series;
@@ -188,8 +189,10 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
     private bool CanNew()=>CanBrowse() && company.HasValue && Has("Create");
     private bool CanView()=>CanBrowse() && Selected is not null;
     private bool CanEdit()=>CanView() && Selected?.Finalized==false && Has("EditDraft");
-    private bool CanPrintPreview()=>CanView() && Selected?.Finalized==true;
+    private bool CanPrintPreview()=>CanView() && Selected is {Finalized:true,Cancelled:false};
     private bool CanFinalize()=>CanView() && Selected?.Finalized==false && Has("Finalize");
+    private bool CanDeleteDraft()=>CanView() && Selected?.Finalized==false && Has("DeleteDraft");
+    private bool CanCancelInvoice()=>CanView() && Selected is {Finalized:true,Cancelled:false} && Has("CancelInvoice");
     public void SetAccess(AccessSnapshot value)
     {
         if(access.EquivalentTo(value)) return;
@@ -217,6 +220,7 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
         RefreshCommand.NotifyCanExecuteChanged();NewCommand.NotifyCanExecuteChanged();ViewCommand.NotifyCanExecuteChanged();
         EditCommand.NotifyCanExecuteChanged();FinalizeCommand.NotifyCanExecuteChanged();
         PrintPreviewCommand.NotifyCanExecuteChanged();
+        DeleteDraftCommand.NotifyCanExecuteChanged();CancelInvoiceCommand.NotifyCanExecuteChanged();
     }
     partial void OnBusyChanged(bool value)=>Notify();
     partial void OnSelectedChanged(SalesRow? value)
@@ -242,14 +246,14 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
     private void ResetFilters()
     {
         SearchText=NumberText=CustomerText="";
-        Status=Statuses[SalesInvoiceView.Rule("Filters.Status").Default switch {"Finalized"=>1,"Draft"=>2,_=>0}];
+        Status=Statuses[SalesInvoiceView.Rule("Filters.Status").Default switch {"Finalized"=>1,"Draft"=>2,"Cancelled"=>3,_=>0}];
         Category=Categories[SalesInvoiceView.Rule("Filters.Category").Default switch {"Local"=>1,"Interstate"=>2,_=>0}];
         Year=Customer=Series=All;
         From=To=null;
     }
     partial void OnSearchTextChanged(string? oldValue,string newValue)
     {if(MasterSearch.Query(oldValue)!=MasterSearch.Query(newValue)) Schedule(MasterSearch.Query(newValue).Length>0);}
-    partial void OnStatusChanged(CatalogFilter? value)=>Schedule(false);
+    partial void OnStatusChanged(SalesStatusFilter? value)=>Schedule(false);
     partial void OnYearChanged(SalesChoice? value)=>Schedule(false);
     partial void OnCustomerChanged(SalesChoice? value)=>Schedule(false);
     partial void OnSeriesChanged(SalesChoice? value)=>Schedule(false);
@@ -282,7 +286,8 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
         var version=generation;
         bool Show(string id)=>SalesInvoiceView.VisibleRule("Filters."+id);
         SalesRequest Filter()=>new(SalesAction.List,company,Search:Show("Search")?MasterSearch.Query(SearchText):null,
-            Finalized:Show("Status")?Status?.Value:null,Year:Show("Year")?Id(Year):null,Series:Show("Series")?Id(Series):null,
+            Finalized:Show("Status")?Status?.Finalized:null,Cancelled:Show("Status")?Status?.Cancelled:null,
+            Year:Show("Year")?Id(Year):null,Series:Show("Series")?Id(Series):null,
             From:Show("From")?Date(From):null,To:Show("To")?Date(To):null,Category:Show("Category")?Category?.Value:null,
             InvoiceNumberSearch:Show("Number")?MasterSearch.Query(NumberText):null,
             CustomerSearch:Show("Customer")?MasterSearch.Query(CustomerText):null);
@@ -334,7 +339,7 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
     internal async Task<string?> PreviewCompanyTemplateAsync(Guid companyId,string templateCode,CancellationToken ct)
     {
         if(!access.Allows("InvoiceTemplate.View",companyId)) return "You do not have template preview access.";
-        var list=await Send(new(SalesAction.List,companyId,Finalized:true),ct);
+        var list=await Send(new(SalesAction.List,companyId,Finalized:true,Cancelled:false),ct);
         if(list.Outcome!=CompanyOutcome.Success) return Error(list);
         if(list.Rows?.FirstOrDefault() is not { } row) return "Finalize a development invoice in this company to preview the template.";
         var preview=await Send(new(SalesAction.PrintPreview,companyId,row.Id,PrintTemplateCode:templateCode),ct);
@@ -343,7 +348,7 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
         new InvoicePreviewWindow(model,false,false,false,(_,_)=>Task.FromResult(new SalesResult(CompanyOutcome.Forbidden))).ShowDialog();
         return null;
     }
-    private async Task OpenRecord(SalesRow? row,bool readOnly,bool openGstReview=false)
+    private async Task OpenRecord(SalesRow? row,bool readOnly)
     {
         if(company is not Guid current || options is null) return;
         var version=generation;
@@ -353,7 +358,7 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
         try
         {
             SalesEntryDetails? entry=null;
-            if(row is null && options.GraftexEntry)
+            if(row is null)
             {
                 var chooser=new MeasureEditorDialog("Select Sale Type",false)
                     {Title="Select Sale Type",Owner=System.Windows.Application.Current.MainWindow,
@@ -399,7 +404,7 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
             if(readOnly && row is not null)
             {
                 var view=SalesInvoiceReadView.Create(data,options);
-                if(row.Finalized)
+                if(row is {Finalized:true,Cancelled:false})
                 {
                     var loadingPreview=false;
                     view.Closing+=(_,args)=>args.Cancel|=loadingPreview;
@@ -447,7 +452,7 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
                 if(result.Outcome==CustomerOutcome.SessionRequired) Accept(new(CompanyOutcome.SessionRequired));
                 return result;
             },
-            access.Allows("Customer.View",current) && access.Allows("Customer.Edit",current),openGstReview);
+            access.Allows("Customer.View",current) && access.Allows("Customer.Edit",current));
             dialog.ShowDialog();
             if(finalize is not null && version==generation) await FinalizeRecordAsync(current,finalize,version);
         }
@@ -468,50 +473,96 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
         if(company is not Guid current || Selected is not {} row) return;
         Busy=true;
         var version=generation;
-        bool reviewRequired;
-        try {reviewRequired=await FinalizeRecordAsync(current,row,version);}
+        try {await FinalizeRecordAsync(current,row,version);}
         finally {Busy=false;}
-        if(version!=generation) return;
-        if(reviewRequired && Has("EditDraft"))
-            await OpenRecord(row,false,openGstReview:true);
-        else await LoadList(CancellationToken.None);
+        if(version==generation) await LoadList(CancellationToken.None);
     }
 
-    private async Task<bool> FinalizeRecordAsync(Guid current,SalesRow row,int version)
+    [RelayCommand(CanExecute=nameof(CanDeleteDraft))]
+    private async Task DeleteDraftAsync()
+    {
+        if(company is not Guid current || Selected is not {Finalized:false} row) return;
+        if(MessageBox.Show($"Permanently delete this draft for {row.Customer}?", "Delete invoice draft",
+            MessageBoxButton.YesNo,MessageBoxImage.Warning,MessageBoxResult.No)!=MessageBoxResult.Yes) return;
+        await ChangeInvoiceStatusAsync(new(SalesAction.DeleteDraft,current,row.Id,row.Version),"Invoice draft deleted.");
+    }
+
+    [RelayCommand(CanExecute=nameof(CanCancelInvoice))]
+    private async Task CancelInvoiceAsync()
+    {
+        if(company is not Guid current || Selected is not {Finalized:true,Cancelled:false} row) return;
+        var dialog=new MeasureEditorDialog($"Cancel invoice {row.Number}",false){Height=430};
+        var reason=dialog.Text("Cancellation reason *","",250);
+        string? confirmedReason=null;
+        dialog.Save(()=>
+        {
+            var text=reason.Text.Trim();
+            if(text.Length==0 || text.Any(char.IsControl))
+                return Task.FromResult<string?>("Enter a cancellation reason on a single line.");
+            if(MessageBox.Show(dialog,$"Cancel invoice {row.Number}? Its original number and history will be retained.",
+                "Confirm invoice cancellation",MessageBoxButton.YesNo,MessageBoxImage.Warning,MessageBoxResult.No)!=MessageBoxResult.Yes)
+                return Task.FromResult<string?>("Cancellation has not been applied.");
+            confirmedReason=text;
+            return Task.FromResult<string?>(null);
+        },"Cancel invoice");
+        dialog.ShowDialog();
+        if(confirmedReason is not null && company==current)
+            await ChangeInvoiceStatusAsync(new(SalesAction.CancelInvoice,current,row.Id,row.Version,CancellationReason:confirmedReason),
+                $"Invoice {row.Number} cancelled.");
+    }
+
+    private async Task ChangeInvoiceStatusAsync(SalesRequest request,string successMessage)
+    {
+        var version=generation;
+        Busy=true;
+        try
+        {
+            var result=await Send(request);
+            if(version!=generation) return;
+            if(!Accept(result)){FinalizationNoticeKind=NoticeKind.Error;return;}
+            FinalizationNoticeKind=NoticeKind.Success;
+            Message=successMessage;
+            _=ExpireSuccessAsync(successMessage);
+        }
+        finally {Busy=false;}
+        if(version==generation) await LoadList(CancellationToken.None);
+    }
+    private async Task FinalizeRecordAsync(Guid current,SalesRow row,int version)
     {
             FinalizationNoticeKind=NoticeKind.Automatic;
             Message="Checking invoice for finalization…";
             var preview=await Send(new(SalesAction.PrepareFinalization,current,row.Id,row.Version));
-            if(version!=generation) return false;
+            if(version!=generation) return;
             if(preview.Outcome!=CompanyOutcome.Success || preview.Snapshot is not {} snapshot || preview.Confirmation is null)
             {
                 ShowFinalizationFailure(preview);
-                return preview.FieldErrors?.Any(x=>SalesFormConfiguration.IsGstInput(x.Field))==true;
+                return;
             }
             var year=Years.FirstOrDefault(y=>y.Id==snapshot.Draft.YearId)?.Label;
             var seriesName=SeriesChoices.FirstOrDefault(x=>x.Id==snapshot.Draft.SeriesId)?.Label;
             var place=GTS.Billing.Domain.CompanyRules.States.GetValueOrDefault(snapshot.Draft.PlaceOfSupply,
                 snapshot.Draft.PlaceOfSupply);
-            var message=$"{snapshot.Seller.Name}{Environment.NewLine}Customer: {snapshot.Customer.LegalName}{Environment.NewLine}"+
+            var notice=string.IsNullOrWhiteSpace(preview.Message)?"":preview.Message+Environment.NewLine+Environment.NewLine;
+            var message=notice+$"{snapshot.Seller.Name}{Environment.NewLine}Customer: {snapshot.Customer.LegalName}{Environment.NewLine}"+
                 $"Date: {snapshot.Draft.Date:d} · Year: {year} · Series: {seriesName}{Environment.NewLine}"+
                 $"Lines: {snapshot.Lines.Count} · Taxable: {snapshot.Amounts.Taxable:N2} · GST: {snapshot.Amounts.Tax:N2}{Environment.NewLine}"+
+                $"CGST: {snapshot.Amounts.Cgst:N2} · SGST: {snapshot.Amounts.Sgst:N2} · IGST: {snapshot.Amounts.Igst:N2}{Environment.NewLine}"+
                 $"Grand total: INR {snapshot.Amounts.Total:N2}{Environment.NewLine}{Environment.NewLine}"+
-                $"Confirm standard domestic supply. Place of supply: {place}. GST jurisdiction: {snapshot.Draft.Jurisdiction}."+
+                $"Confirm that this is a direct domestic sale of goods delivered in {place}."+
                 Environment.NewLine+"Finalization issues a permanent invoice number and locks the invoice. Do you want to continue?";
             Message="";
-            if(MessageBox.Show(message,"Finalize Sales Invoice?",MessageBoxButton.YesNo,MessageBoxImage.Warning,MessageBoxResult.No)!=MessageBoxResult.Yes) return false;
+            if(MessageBox.Show(message,"Finalize Sales Invoice?",MessageBoxButton.YesNo,MessageBoxImage.Warning,MessageBoxResult.No)!=MessageBoxResult.Yes) return;
             Message="Finalizing Invoice…";
             var finalized=await Send(new(SalesAction.Finalize,current,row.Id,row.Version,Confirmation:preview.Confirmation));
-            if(version!=generation) return false;
+            if(version!=generation) return;
             if(finalized.Outcome!=CompanyOutcome.Success || finalized.Row is not {Finalized:true} issued)
-            { ShowFinalizationFailure(finalized);return false; }
+            { ShowFinalizationFailure(finalized);return; }
             Message=$"Sales Invoice {issued.Number} has been finalized successfully.";
             FinalizationNoticeKind=NoticeKind.Success;
             Rows=Rows.Select(item=>item.Id==issued.Id?item with {Number=issued.Number,Finalized=true,
                 Taxable=issued.Taxable,Tax=issued.Tax,Total=issued.Total,Version=issued.Version}:item).ToArray();
             Selected=Rows.FirstOrDefault(item=>item.Id==issued.Id);
             _=ExpireSuccessAsync(Message);
-            return false;
     }
 
     private void ShowFinalizationFailure(SalesResult result)
@@ -554,3 +605,4 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
     });
 }
 public sealed record SalesCategoryFilter(string Label,SalesIntent? Value);
+public sealed record SalesStatusFilter(string Label,bool? Finalized=null,bool? Cancelled=null);
