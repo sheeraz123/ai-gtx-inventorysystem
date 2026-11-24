@@ -5,9 +5,27 @@
  <UserControl.Resources>
   <BooleanToVisibilityConverter x:Key="Visible"/>
   <DataTemplate DataType="{x:Type local:CustomerField}">
-   <StackPanel Margin="5,5">
-    <TextBlock Text="{Binding Label}" FontWeight="SemiBold" Margin="0,0,0,4"/>
-    <TextBox Text="{Binding Text,UpdateSourceTrigger=PropertyChanged}" IsReadOnly="{Binding ReadOnly}" MinHeight="30" MaxHeight="110"
+   <StackPanel Margin="5,5" Visibility="{Binding IsShown,Converter={StaticResource Visible}}">
+    <DockPanel LastChildFill="True">
+     <TextBlock Text="{Binding Label}" TextWrapping="Wrap" VerticalAlignment="Center">
+      <TextBlock.Style>
+       <Style TargetType="TextBlock">
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="DockPanel.Dock" Value="Top"/>
+        <Setter Property="Margin" Value="0,0,0,4"/>
+        <Style.Triggers>
+         <DataTrigger Binding="{Binding Tag,RelativeSource={RelativeSource AncestorType=ItemsControl}}" Value="GraftexRow">
+          <Setter Property="DockPanel.Dock" Value="Left"/>
+          <Setter Property="Width" Value="142"/>
+          <Setter Property="Margin" Value="0,0,12,0"/>
+          <Setter Property="FontWeight" Value="Normal"/>
+         </DataTrigger>
+        </Style.Triggers>
+       </Style>
+      </TextBlock.Style>
+     </TextBlock>
+     <Grid>
+    <TextBox Text="{Binding Text,UpdateSourceTrigger=PropertyChanged}" IsReadOnly="{Binding IsInputLocked}" MinHeight="30" MaxHeight="110"
       Padding="5" MaxLength="4000" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
       AutomationProperties.Name="{Binding Label}" Visibility="{Binding IsText,Converter={StaticResource Visible}}"/>
     <ComboBox ItemsSource="{Binding Choices}" DisplayMemberPath="Label" SelectedValuePath="Key"
@@ -25,6 +43,8 @@
       AutomationProperties.Name="{Binding Label}" Visibility="{Binding IsDate,Converter={StaticResource Visible}}"/>
     <CheckBox IsChecked="{Binding Checked,Mode=TwoWay,UpdateSourceTrigger=PropertyChanged}" Content="{Binding Label}"
       AutomationProperties.Name="{Binding Label}" Visibility="{Binding IsCheck,Converter={StaticResource Visible}}"/>
+     </Grid>
+    </DockPanel>
     <TextBlock Text="{Binding Error}" Foreground="#A31621" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
    </StackPanel>
   </DataTemplate>
@@ -115,52 +135,101 @@
      </WrapPanel>
      <TabControl>
       <TabItem Header="{DynamicResource Display.Customer.Header.General}">
-       <ScrollViewer VerticalScrollBarVisibility="Auto"><ItemsControl ItemsSource="{Binding GeneralFields}" IsEnabled="{Binding CanEdit}" Margin="8"/></ScrollViewer>
+       <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <Grid Margin="16">
+         <ItemsControl ItemsSource="{Binding GeneralFields}" IsEnabled="{Binding CanEdit}">
+          <ItemsControl.Style><Style TargetType="ItemsControl"><Style.Triggers>
+           <DataTrigger Binding="{Binding GraftexLayout}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+          </Style.Triggers></Style></ItemsControl.Style>
+         </ItemsControl>
+         <Grid Visibility="{Binding GraftexLayout,Converter={StaticResource Visible}}">
+          <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+          <ItemsControl Tag="GraftexRow" ItemsSource="{Binding GraftexGeneralLeft}" IsEnabled="{Binding CanEdit}" Margin="0,0,16,0"/>
+          <Border Grid.Column="1" BorderBrush="{DynamicResource Palette.GridLine}" BorderThickness="1,0,0,0" Padding="16,0,0,0">
+           <ItemsControl Tag="GraftexRow" ItemsSource="{Binding GraftexGeneralRight}" IsEnabled="{Binding CanEdit}"/>
+          </Border>
+         </Grid>
+        </Grid>
+       </ScrollViewer>
       </TabItem>
-      <TabItem Header="{DynamicResource Display.Customer.Header.GSTTax}">
+      <TabItem Header="{DynamicResource Display.Customer.Header.GSTTax}" Visibility="{Binding ShowTax,Converter={StaticResource Visible}}">
        <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="8">
         <TextBlock Text="{DynamicResource Display.Customer.Text.GSTINAndPANAreOptionalSelectTheRegisteredStateUTFromTheListIfApplicable}" TextWrapping="Wrap"/>
         <ItemsControl ItemsSource="{Binding TaxFields}" IsEnabled="{Binding CanEdit}"/>
        </StackPanel></ScrollViewer>
       </TabItem>
-      <TabItem Header="{DynamicResource Display.Customer.Header.Billing}">
+      <TabItem Header="{DynamicResource Display.Customer.Header.Billing}" Visibility="{Binding StandardBilling,Converter={StaticResource Visible}}">
        <DockPanel Margin="8">
         <Button DockPanel.Dock="Top" Content="{DynamicResource Display.Customer.Content.AddBillingAddress}" Command="{Binding AddBillingCommand}" HorizontalAlignment="Left" Padding="10,5"/>
         <ScrollViewer VerticalScrollBarVisibility="Auto"><ItemsControl ItemsSource="{Binding BillingAddresses}" IsEnabled="{Binding CanEdit}"/></ScrollViewer>
        </DockPanel>
       </TabItem>
-      <TabItem Header="{DynamicResource Display.Customer.Header.Shipping}">
+      <TabItem Header="{DynamicResource Display.Customer.Header.Shipping}" Visibility="{Binding StandardBilling,Converter={StaticResource Visible}}">
        <DockPanel Margin="8">
         <Button DockPanel.Dock="Top" Content="{DynamicResource Display.Customer.Content.AddShippingAddress}" Command="{Binding AddShippingCommand}" HorizontalAlignment="Left" Padding="10,5"/>
         <ScrollViewer VerticalScrollBarVisibility="Auto"><ItemsControl ItemsSource="{Binding ShippingAddresses}" IsEnabled="{Binding CanEdit}"/></ScrollViewer>
        </DockPanel>
       </TabItem>
-      <TabItem Header="{DynamicResource Display.Customer.Header.Contacts}">
+      <TabItem Header="Billing &amp; Shipping" Visibility="{Binding CombinedAddresses,Converter={StaticResource Visible}}">
+       <DockPanel Margin="8">
+        <Button DockPanel.Dock="Top" Content="Copy Billing Address → Shipping Address" Command="{Binding CopyBillingCommand}"
+          HorizontalAlignment="Left" Padding="10,5" Margin="0,0,0,8"/>
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+         <Grid>
+          <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+          <StackPanel Margin="0,0,8,0">
+           <TextBlock Text="Billing address" FontWeight="SemiBold" Margin="0,0,0,5"/>
+           <Button Content="Add Billing Address" Command="{Binding AddBillingCommand}" HorizontalAlignment="Left" Padding="10,5"/>
+           <ComboBox ItemsSource="{Binding BillingAddresses}" SelectedItem="{Binding CopySource,Mode=TwoWay}"
+             DisplayMemberPath="Header" AutomationProperties.Name="Billing address to copy" IsEnabled="{Binding CanEdit}"/>
+           <ItemsControl ItemsSource="{Binding BillingAddresses}" IsEnabled="{Binding CanEdit}"/>
+          </StackPanel>
+          <StackPanel Grid.Column="1" Margin="8,0,0,0">
+           <TextBlock Text="Shipping address" FontWeight="SemiBold" Margin="0,0,0,5"/>
+           <Button Content="Add Shipping Address" Command="{Binding AddShippingCommand}" HorizontalAlignment="Left" Padding="10,5"/>
+           <ComboBox ItemsSource="{Binding ShippingAddresses}" SelectedItem="{Binding CopyDestination,Mode=TwoWay}"
+             DisplayMemberPath="Header" AutomationProperties.Name="Shipping address to replace" IsEnabled="{Binding CanEdit}"/>
+           <ItemsControl ItemsSource="{Binding ShippingAddresses}" IsEnabled="{Binding CanEdit}"/>
+          </StackPanel>
+         </Grid>
+        </ScrollViewer>
+       </DockPanel>
+      </TabItem>
+      <TabItem Header="{DynamicResource Display.Customer.Header.BankDetails}" Visibility="{Binding ShowBank,Converter={StaticResource Visible}}">
+       <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="8">
+        <ItemsControl ItemsSource="{Binding BankFields}" IsEnabled="{Binding CanEditBank}">
+         <ItemsControl.Style><Style TargetType="ItemsControl"><Style.Triggers>
+          <DataTrigger Binding="{Binding GraftexLayout}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+         </Style.Triggers></Style></ItemsControl.Style>
+        </ItemsControl>
+        <Grid Visibility="{Binding GraftexLayout,Converter={StaticResource Visible}}">
+         <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+         <ItemsControl Tag="GraftexRow" ItemsSource="{Binding GraftexBankLeft}" IsEnabled="{Binding CanEditBank}" Margin="0,0,16,0"/>
+         <Border Grid.Column="1" BorderBrush="{DynamicResource Palette.GridLine}" BorderThickness="1,0,0,0" Padding="16,0,0,0">
+          <ItemsControl Tag="GraftexRow" ItemsSource="{Binding GraftexBankRight}" IsEnabled="{Binding CanEditBank}"/>
+         </Border>
+        </Grid>
+       </StackPanel></ScrollViewer>
+      </TabItem>
+      <TabItem Header="{DynamicResource Display.Customer.Header.Contacts}" Visibility="{Binding ShowContacts,Converter={StaticResource Visible}}">
        <DockPanel Margin="8">
         <Button DockPanel.Dock="Top" Content="{DynamicResource Display.Customer.Content.AddContactPerson}" Command="{Binding AddContactCommand}" HorizontalAlignment="Left" Padding="10,5"/>
         <ScrollViewer VerticalScrollBarVisibility="Auto"><ItemsControl ItemsSource="{Binding Contacts}" IsEnabled="{Binding CanEdit}"/></ScrollViewer>
        </DockPanel>
       </TabItem>
-      <TabItem Header="{DynamicResource Display.Customer.Header.TermsCredit}">
+      <TabItem Header="{DynamicResource Display.Customer.Header.TermsCredit}" Visibility="{Binding ShowCredit,Converter={StaticResource Visible}}">
        <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="8">
         <TextBlock Text="{Binding CreditWarning}" FontWeight="Bold" Foreground="#8A4800" TextWrapping="Wrap"/>
         <ItemsControl ItemsSource="{Binding CreditFields}" IsEnabled="{Binding CanEditCredit}"/>
        </StackPanel></ScrollViewer>
       </TabItem>
-      <TabItem Header="{DynamicResource Display.Customer.Header.OpeningDraft}">
+      <TabItem Header="{DynamicResource Display.Customer.Header.OpeningDraft}" Visibility="{Binding ShowOpening,Converter={StaticResource Visible}}">
        <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="8">
         <TextBlock Text="{Binding OpeningExplanation}" FontWeight="SemiBold" TextWrapping="Wrap"/>
         <ItemsControl ItemsSource="{Binding OpeningFields}" IsEnabled="{Binding CanEditCredit}"/>
        </StackPanel></ScrollViewer>
       </TabItem>
-      <TabItem Header="{DynamicResource Display.Customer.Header.BankDetails}">
-       <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="8">
-        <TextBlock Text="Customer payment/refund references only. Synthetic data only in this unencrypted database. Never enter banking passwords, OTPs, UPI PINs, CVV or card credentials. These details are excluded from invoice snapshots." TextWrapping="Wrap"/>
-        <ItemsControl ItemsSource="{Binding BankFields}" IsEnabled="{Binding CanEditBank}"
-         Visibility="{Binding CanSeeBank,Converter={StaticResource Visible}}"/>
-       </StackPanel></ScrollViewer>
-      </TabItem>
-      <TabItem Header="{DynamicResource Display.Customer.Header.NotesAudit}">
+      <TabItem Header="{DynamicResource Display.Customer.Header.NotesAudit}" Visibility="{Binding ShowNotes,Converter={StaticResource Visible}}">
        <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="8">
         <ItemsControl ItemsSource="{Binding NotesFields}" IsEnabled="{Binding CanEdit}"/>
         <TextBlock Text="{Binding AuditCaption}" TextWrapping="Wrap" Margin="5,12"/>

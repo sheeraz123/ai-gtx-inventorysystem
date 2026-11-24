@@ -136,6 +136,7 @@ public sealed class CompanyStore(DevelopmentDatabase database) : ICompanyStore
     private static void ApplyCompany(Company c,CompanyDraft d)
     {
         c.Code=d.Code; c.LegalName=d.LegalName; c.DisplayName=d.TradeName; c.Tagline=d.Tagline;
+        c.Iec=d.Iec;
         c.BusinessType=d.BusinessType; c.EstablishedOn=d.EstablishedOn is null?null:DateOnly.ParseExact(d.EstablishedOn,"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture);
         c.RegistrationType=d.RegistrationType; c.Pan=d.Pan; c.Tan=d.Tan; c.Cin=d.Cin; c.Udyam=d.Udyam;
     }
@@ -241,7 +242,7 @@ public sealed class CompanyStore(DevelopmentDatabase database) : ICompanyStore
         var terms=settings?.TermsVersionId is null?null:await db.Set<TermsVersion>().Where(x=>x.Id==settings.TermsVersionId).Select(x=>x.Text).SingleAsync(ct);
         var logo=includeLogo && settings?.Logo1AssetId is not null ?
             await db.Set<BrandingAsset>().Where(x=>x.Id==settings.Logo1AssetId).Select(x=>x.Content).SingleAsync(ct):null;
-        var d=new CompanyDraft {Code=c.Code,LegalName=c.LegalName,TradeName=c.DisplayName,Tagline=c.Tagline,
+        var d=new CompanyDraft {Code=c.Code,LegalName=c.LegalName,TradeName=c.DisplayName,Tagline=c.Tagline,Iec=c.Iec,
             BusinessType=c.BusinessType,EstablishedOn=c.EstablishedOn?.ToString("yyyy-MM-dd"),AddressLine1=address?.Lines ?? "",
             AddressLine2=address?.Line2,Locality=address?.Locality,City=address?.City ?? "",District=address?.District,
             StateCode=address?.StateCode ?? "",Pin=address?.PostalCode ?? "",Country=address?.CountryCode ?? "IN",

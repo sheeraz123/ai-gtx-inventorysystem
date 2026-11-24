@@ -9,6 +9,7 @@ public sealed record CompanyDraft
     public string LegalName { get; init; } = "";
     public string? TradeName { get; init; }
     public string? Tagline { get; init; }
+    public string? Iec { get; init; }
     public string? BusinessType { get; init; }
     public string? EstablishedOn { get; init; }
     public string AddressLine1 { get; init; } = "";
@@ -61,6 +62,15 @@ public static class CompanyRules
         ["33"]="Tamil Nadu", ["34"]="Puducherry", ["35"]="Andaman and Nicobar Islands",
         ["36"]="Telangana", ["37"]="Andhra Pradesh", ["38"]="Ladakh"
     };
+    // Display abbreviations from state_mas.xlsx, keyed by the application's GST state codes.
+    public static IReadOnlyDictionary<string,string> StateAbbreviations {get;}=new Dictionary<string,string>
+    {
+        ["01"]="JK",["02"]="HP",["03"]="Pb.",["04"]="CH",["05"]="UT",["06"]="HR",["07"]="DL",["08"]="RJ",
+        ["09"]="UP",["10"]="BH",["11"]="SK",["12"]="AR",["13"]="NL",["14"]="MN",["15"]="MI",["16"]="TR",
+        ["17"]="ME",["18"]="AS",["19"]="WB",["20"]="JH",["21"]="OR",["22"]="CT",["23"]="MP",["24"]="GJ",
+        ["26"]="DN",["27"]="MH",["29"]="KA",["30"]="GA",["31"]="LD",["32"]="KL",["33"]="TN",["34"]="PY",
+        ["35"]="AN",["36"]="TS",["37"]="AD"
+    };
     public static IReadOnlyList<string> RegistrationTypes { get; } = ["Unregistered", "Regular", "Composition"];
     private static bool Match(string value, string pattern) =>
         Regex.IsMatch(value, pattern, RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
@@ -73,7 +83,7 @@ public static class CompanyRules
         var v = input with
         {
             Code=Upper(input.Code) ?? "", LegalName=Text(input.LegalName) ?? "",
-            TradeName=Text(input.TradeName), Tagline=Text(input.Tagline), BusinessType=Text(input.BusinessType),
+            TradeName=Text(input.TradeName), Tagline=Text(input.Tagline), Iec=Upper(input.Iec), BusinessType=Text(input.BusinessType),
             EstablishedOn=Text(input.EstablishedOn), AddressLine1=Text(input.AddressLine1) ?? "",
             AddressLine2=Text(input.AddressLine2), Locality=Text(input.Locality), City=Text(input.City) ?? "",
             District=Text(input.District), StateCode=Text(input.StateCode) ?? "", Pin=Text(input.Pin) ?? "",
@@ -92,6 +102,7 @@ public static class CompanyRules
                 e[key] = "Value is too long.";
         if (!Match(v.Code, "^[A-Z0-9][A-Z0-9_-]{0,29}$")) e[nameof(v.Code)]="Use 1–30 letters, digits, underscores or hyphens.";
         if (v.LegalName.Length is < 1 or > 200) e[nameof(v.LegalName)]="Legal name is required (maximum 200 characters).";
+        if (v.Iec?.Any(char.IsControl)==true) e[nameof(v.Iec)]="Enter the IEC number on a single line.";
         if (v.AddressLine1.Length == 0) e[nameof(v.AddressLine1)]="Address line 1 is required.";
         if (v.City.Length == 0) e[nameof(v.City)]="City is required.";
         if (!States.ContainsKey(v.StateCode)) e[nameof(v.StateCode)]="Select a supported Indian state/UT.";

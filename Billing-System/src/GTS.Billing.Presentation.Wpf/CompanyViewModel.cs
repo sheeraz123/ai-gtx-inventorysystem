@@ -198,7 +198,7 @@ public sealed class CompanyViewModel : ObservableObject
             new("Contacts",[F("Mobile","Primary mobile"),F("AlternateMobile","Alternate mobile"),F("Landline","Landline"),
                 F("Email","Email"),F("Website","Website (http/https)"),F("ContactPerson","Contact person")]),
             new("Tax profile",[F("RegistrationType","GST registration type *"),F("Pan","PAN"),
-                F("Tan","TAN"),F("Cin","CIN / LLPIN"),F("Udyam","MSME / Udyam")]),
+                F("Tan","TAN"),F("Cin","CIN / LLPIN"),F("Udyam","MSME / Udyam"),F("Iec","IEC No.")]),
             new("Logos & Branding",[],1),
             new("Bank Accounts",[],2),
             new("Invoice Defaults",[],3),

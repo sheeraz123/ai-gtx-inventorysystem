@@ -2,23 +2,27 @@ using GTS.Billing.Domain;
 
 namespace GTS.Billing.Application;
 
-public enum SalesAction { List, Options, View, Preview, Save, Finalize, PrintPreview, Print, PrintToPdf, CustomerAddresses, PrepareFinalization }
+public enum SalesAction { List, Options, View, Preview, Save, Finalize, PrintPreview, Print, PrintToPdf, CustomerAddresses, PrepareFinalization, DeleteDraft, CancelInvoice }
 public sealed record SalesChoice(Guid Id,string Label,Guid? Scope=null,Guid? SecondaryScope=null,decimal? Price=null,bool Inclusive=false,
     string? Code=null,string? Sku=null,string? ProductName=null,string? Brand=null,decimal? Mrp=null,
     string? ProductKind=null,string? Hsn=null,decimal? GstRate=null,Guid? TaxClassificationId=null,string? TaxContext=null,
-    bool Preferred=false,bool Active=true,DateOnly? From=null,DateOnly? To=null)
+    bool Preferred=false,bool Active=true,DateOnly? From=null,DateOnly? To=null,string? NextNumberPreview=null,
+    bool PurchaseOrderRequired=false)
 {
     public override string ToString()=>Label;
 }
 public sealed record SalesLineInput(Guid ProductId,Guid? UnitId,decimal Quantity,decimal Price,bool Inclusive,
-    decimal DiscountPercent=0,decimal DiscountAmount=0,Guid? ProductVariantId=null);
+    decimal DiscountPercent=0,decimal DiscountAmount=0,Guid? ProductVariantId=null,
+    string? ManualHsn=null,decimal? ManualGstRate=null);
 public sealed record SalesTransport(string GoodsReceipt, string Vehicle, string Weight, string Carrier,
-    string OrderThrough, string PrivateMark, string Document, string PreparedBy);
+    string OrderThrough, string PrivateMark, string Document, string PreparedBy,string Distance="",string TransportId="");
+public enum SalesIntent { Local, Interstate }
+public sealed record SalesEntryDetails(SalesIntent? Intent=null,string PaymentMode="",string Tcs="",string Reversal="",string Ern="");
 public sealed record SalesDraft(DateOnly Date,Guid? YearId=null,Guid? SeriesId=null,Guid? RegistrationId=null,
     Guid? CustomerId=null,Guid? BillingAddressId=null,Guid? ShippingAddressId=null,string PlaceOfSupply="",
     GstJurisdiction Jurisdiction=GstJurisdiction.Unresolved, bool DomesticConfirmed=false,string PurchaseOrder="",
     DateOnly? PurchaseOrderDate=null,string Reference="",string Terms="",DateOnly? DueDate=null,string Notes="",string InternalRemarks="",
-    IReadOnlyList<SalesLineInput>? Lines=null,SalesTransport? Transport=null)
+    IReadOnlyList<SalesLineInput>? Lines=null,SalesTransport? Transport=null,SalesEntryDetails? EntryDetails=null)
 {
     public IReadOnlyList<SalesFieldError> RequiredFields(bool requireNumbering)
     {
@@ -32,10 +36,6 @@ public sealed record SalesDraft(DateOnly Date,Guid? YearId=null,Guid? SeriesId=n
         Require(RegistrationId.HasValue,nameof(RegistrationId),"Select a supplier GST registration.");
         Require(SeriesId.HasValue || !requireNumbering,nameof(SeriesId),"Select a document series.");
         Require(CustomerId.HasValue,nameof(CustomerId),"Select a customer.");
-        Require(CompanyRules.States.ContainsKey(PlaceOfSupply),nameof(PlaceOfSupply),"Select a reviewed place of supply.");
-        Require(Jurisdiction is GstJurisdiction.IntraState or GstJurisdiction.IntraUnionTerritory or GstJurisdiction.Interstate,
-            nameof(Jurisdiction),"Select a supported GST jurisdiction.");
-        Require(DomesticConfirmed,nameof(DomesticConfirmed),"Confirm the domestic supply review.");
         Require(Lines is {Count:>0},nameof(Lines),"Add at least one product line.");
         return errors;
     }
@@ -50,17 +50,25 @@ public sealed record FinalSalesLine(int Number,SalesLineInput Input,ProductInvoi
 public sealed record SalesInvoiceSnapshot(SalesDraft Draft,CustomerInvoiceSnapshot Customer,SalesSeller Seller,
     IReadOnlyList<FinalSalesLine> Lines,SalesAmounts Amounts,string? Number=null,string? FinancialYearCode=null,string? DocumentSeriesCode=null);
 public sealed record SalesSeller(string Name,string? DisplayName,string? Phone,string? Email,string Gstin,string StateCode,
-    string Address,CompanyInvoicePresentation Presentation,string? Iec=null);
-public sealed record SalesRow(Guid Id,long Version,DateOnly Date,string? Number,string Customer,string Year,string Series,
-    decimal Taxable,decimal Tax,decimal Total,bool Finalized)
+    string Address,CompanyInvoicePresentation Presentation,string? Iec=null,string? BusinessDescription=null,string? AlternateMobile=null)
 {
-    public string Status=>Finalized?"Finalized":"Draft";
+    public IEnumerable<string> InvoiceTaglines()=>new[]{BusinessDescription,Presentation.Options?.Tagline}
+        .Where(value=>!string.IsNullOrWhiteSpace(value)).Select(value=>value!.Trim()).Distinct(StringComparer.Ordinal);
+    public string InvoicePhones()=>string.Join(", ",new[]{Phone,AlternateMobile}
+        .Where(value=>!string.IsNullOrWhiteSpace(value)).Select(value=>value!.Trim()).Distinct(StringComparer.Ordinal));
+}
+public sealed record SalesRow(Guid Id,long Version,DateOnly Date,string? Number,string Customer,string Year,string Series,
+    decimal Taxable,decimal Tax,decimal Total,bool Finalized,SalesIntent? Intent=null,bool Cancelled=false)
+{
+    public string Status=>Cancelled?"Cancelled":Finalized?"Finalized":"Draft";
+    public string TaxType=>Intent switch {SalesIntent.Local=>"Local Sale",SalesIntent.Interstate=>"Inter State Sale",_=>"Unreviewed"};
 }
 public sealed record SalesOptions(IReadOnlyList<SalesChoice> Years,IReadOnlyList<SalesChoice> Series,
     IReadOnlyList<SalesChoice> Registrations,IReadOnlyList<SalesChoice> Customers,IReadOnlyList<SalesChoice> Billing,
     IReadOnlyList<SalesChoice> Shipping,IReadOnlyList<SalesChoice> Products,IReadOnlyList<SalesChoice> Units,
     string? CompanyName=null,IReadOnlyList<SalesTaxChoice>? TaxChoices=null,bool CanFillMrp=false,bool CanLinkTax=false,
-    IReadOnlyList<SalesVariantChoice>? Variants=null,SalesFormConfiguration? Form=null,string? PreparedBy=null)
+    IReadOnlyList<SalesVariantChoice>? Variants=null,SalesFormConfiguration? Form=null,string? PreparedBy=null,
+    string EntryLayout="Company default",bool GraftexEntry=false)
 {
     public static bool IncludesDate(SalesChoice year,DateOnly date)=>year.Active && year.From<=date && year.To>=date;
     public SalesChoice? DefaultYear(DateOnly date)=>ChooseDefault(Years.Where(year=>IncludesDate(year,date)));
@@ -90,14 +98,17 @@ public sealed record SalesProductCompletion(int Line,decimal? Mrp,Guid? TaxAssig
 public sealed record SalesRequest(SalesAction Action,Guid? Company=null,Guid? Id=null,long Version=0,SalesDraft? Draft=null,
     string? Search=null,bool? Finalized=null,Guid? Year=null,Guid? Customer=null,Guid? Series=null,DateOnly? From=null,DateOnly? To=null,
     string? Confirmation=null,FinalizeDocumentNumberRequest? ExpectedNumbering=null,string? PrintTemplateCode=null,
-    IReadOnlyList<SalesProductCompletion>? ProductCompletions=null,Guid? CreateDraftId=null);
+    IReadOnlyList<SalesProductCompletion>? ProductCompletions=null,Guid? CreateDraftId=null,
+    SalesIntent? Category=null,string? InvoiceNumberSearch=null,string? CustomerSearch=null,
+    bool? Cancelled=null,string? CancellationReason=null);
 public sealed record SalesResult(CompanyOutcome Outcome,Guid? Company=null,string? Message=null,IReadOnlyList<SalesRow>? Rows=null,
     SalesRow? Row=null,SalesDraft? Draft=null,SalesOptions? Options=null,SalesInvoiceSnapshot? Snapshot=null,string? Confirmation=null,
     FinalizedDocumentNumber? Allocation=null,IReadOnlyList<string>? Audit=null,InvoicePrintModel? PrintModel=null,
     IReadOnlyList<SalesFieldError>? FieldErrors=null,SalesCustomerAddresses? CustomerAddresses=null,
     IReadOnlyList<SalesLineEstimate>? PendingGstLines=null);
 
-public sealed record SalesLineEstimate(decimal Gross,decimal Discount,decimal? Taxable,decimal? Tax,decimal? Total);
+public sealed record SalesLineEstimate(decimal Gross,decimal Discount,decimal? Taxable,decimal? Tax,decimal? Total,
+    AppliedTaxSnapshot? EstimatedSplit=null,SalesAmounts? EstimatedAmounts=null);
 
 public readonly record struct SalesPriceAmounts(decimal Gross,decimal Discount)
 {
@@ -136,11 +147,22 @@ public static class SalesCalculation
         var discount=line.DiscountPercent>0?Money(subtotal*line.DiscountPercent/100m):line.DiscountAmount;
         return new(subtotal,discount);
     }
-    public static SalesLineEstimate Estimate(SalesLineInput line,TaxSnapshot rate)
+    public static SalesLineEstimate Estimate(SalesLineInput line,TaxSnapshot rate,SalesIntent? intent=null)
     {
         var pricing=PriceAmounts(line);
         if(rate.Treatment!=TaxTreatment.Taxable)
             return new(pricing.Gross,pricing.Discount,null,null,null);
+        AppliedTaxSnapshot? split=intent switch
+        {
+            SalesIntent.Local when rate.Cgst+rate.Sgst==rate.Total=>
+                new(rate,GstJurisdiction.IntraState,"Estimated local split",0,rate.Cgst,rate.Sgst,0,0,rate.Cess),
+            SalesIntent.Interstate when rate.Igst==rate.Total=>
+                new(rate,GstJurisdiction.Interstate,"Estimated interstate split",0,0,0,rate.Igst,0,rate.Cess),
+            _=>null
+        };
+        if(split is not null && Calculate(line,split) is { } estimated)
+            return new(pricing.Gross,pricing.Discount,estimated.Taxable,estimated.Tax,estimated.Total,
+                split with {TaxableValue=estimated.Taxable},estimated);
         var ratio=(rate.Total+rate.Cess)/100m;
         var taxable=Money(line.Inclusive?pricing.Net/(1m+ratio):pricing.Net);
         var tax=line.Inclusive?pricing.Net-taxable:Money(taxable*rate.Total/100m)+Money(taxable*rate.Cess/100m);

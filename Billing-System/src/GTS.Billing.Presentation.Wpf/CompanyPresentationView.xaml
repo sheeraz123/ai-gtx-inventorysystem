@@ -198,6 +198,8 @@
        <StackPanel IsEnabled="{Binding CanWriteRecord}">
         <CheckBox Content="{DynamicResource Display.Common.Active}" IsChecked="{Binding Active}"/>
         <CheckBox Content="{DynamicResource Display.CompanyPresentation.Content.DefaultForInvoices}" IsChecked="{Binding TaxDefault}"/>
+        <CheckBox Content="Link the default company billing address in this GST state"
+                  IsChecked="{Binding LinkDefaultBillingAddress}"/>
        </StackPanel>
        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource EditorActions}"/>
       </StackPanel>

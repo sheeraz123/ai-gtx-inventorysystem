@@ -3,7 +3,8 @@ using System.Collections.Immutable;
 namespace GTS.Billing.Application;
 
 public enum PresentationAction { ListLogos, GetLogo, SaveLogo, RemoveLogo, ListBanks, GetBank, SaveBank, GetDefaults, SaveDefaults, Snapshot, ListTax, GetTax, SaveTax, SetInvoiceBank }
-public sealed record CompanyTaxDraft(string Gstin, string StateCode, bool Active=true, bool Default=false);
+public sealed record CompanyTaxDraft(string Gstin, string StateCode, bool Active=true, bool Default=false,
+    bool LinkDefaultBillingAddress=false);
 public sealed record CompanyTaxDetail(Guid Id, long Version, CompanyTaxDraft Draft)
 {
     public string State => GTS.Billing.Domain.CompanyRules.States.GetValueOrDefault(Draft.StateCode, Draft.StateCode);

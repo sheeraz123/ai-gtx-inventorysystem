@@ -61,7 +61,7 @@ public sealed class CustomerStore(DevelopmentDatabase database) : ICustomerStore
                 if(found is null) return new(CustomerOutcome.NotFound,context);
                 customer=found;
                 if(request.Operation==CustomerOperation.Get)
-                    return new(CustomerOutcome.Success,context,Redact(await Read(db,customer,ct),Can("BankView"),Can("InternalNotes")));
+                    return new(CustomerOutcome.Success,context,Redact(await Read(db,customer,ct),Can("BankView"),admin));
                 if(request.Operation==CustomerOperation.Snapshot) return await Snapshot(db,customer,context,request.Snapshot ?? new(),ct);
                 if(request.ExpectedVersion!=customer.Version) return new(CustomerOutcome.Conflict,context);
             }
@@ -119,7 +119,31 @@ public sealed class CustomerStore(DevelopmentDatabase database) : ICustomerStore
                 if(!Can("CreditEdit") && (proposed.Credit!=original.Credit || proposed.Opening!=original.Opening))
                     return new(CustomerOutcome.Forbidden);
                 if(!Can("BankView") || !Can("BankEdit")) proposed=proposed with {Bank=original.Bank};
-                if(!Can("InternalNotes")) proposed=proposed with {InternalRemarks=original.InternalRemarks};
+                if(!admin) proposed=proposed with {InternalRemarks=original.InternalRemarks};
+                var configuration=await SettingsStore.ReadCompanyAsync(db,company.Id,ct);
+                var fieldErrors=new Dictionary<string,string>();
+                string? ApplyField(string key,string? value,string? previous)
+                {
+                    switch(ConfigurationModule.CustomerMode(configuration,key))
+                    {
+                        case "Hidden":return previous;
+                        case "Read-only" when value!=previous:
+                            fieldErrors[key]=ConfigurationModule.CustomerCaption(configuration,key,key)+" is read-only.";
+                            return previous;
+                        case "Required" when string.IsNullOrWhiteSpace(value):
+                            fieldErrors[key]=ConfigurationModule.CustomerCaption(configuration,key,key)+" is required.";
+                            break;
+                    }
+                    return value;
+                }
+                proposed=proposed with
+                {
+                    TradeName=ApplyField(nameof(proposed.TradeName),proposed.TradeName,original.TradeName),
+                    DisplayName=ApplyField(nameof(proposed.DisplayName),proposed.DisplayName,original.DisplayName),
+                    GroupLabel=ApplyField(nameof(proposed.GroupLabel),proposed.GroupLabel,original.GroupLabel),
+                    CategoryLabel=ApplyField(nameof(proposed.CategoryLabel),proposed.CategoryLabel,original.CategoryLabel)
+                };
+                if(fieldErrors.Count>0) return new(CustomerOutcome.InvalidInput,context,Errors:fieldErrors);
                 var validated=CustomerRules.Validate(proposed with {Code=creating ? "" : customer.Code},assignCodeOnSave:creating);
                 if(validated.Errors.Count>0) return new(CustomerOutcome.InvalidInput,context,Errors:validated.Errors);
                 var draft=validated.Value;
@@ -141,7 +165,8 @@ public sealed class CustomerStore(DevelopmentDatabase database) : ICustomerStore
                     return new(CustomerOutcome.DuplicateWarning,context,Warnings:warnings);
                 if(creating)
                 {
-                    var code=await NextCustomerCodeAsync(db,company.Id,company.Code,ct);
+                    var code=await NextCustomerCodeAsync(db,company.Id,company.Code,draft.LegalName,
+                        ConfigurationModule.GraftexCustomer(configuration),ct);
                     if(code is null) return new(CustomerOutcome.Conflict,context,Errors:new Dictionary<string,string>
                         {{"Code","No more automatic customer codes fit this company prefix."}});
                     draft=draft with {Code=code};
@@ -162,7 +187,7 @@ public sealed class CustomerStore(DevelopmentDatabase database) : ICustomerStore
                 ChangesJson=JsonSerializer.Serialize(new {Operation=request.Operation.ToString(),EntryId=savedAddressId??request.EntryId})});
             await db.SaveChangesAsync(ct);
             var detail=request.Operation==CustomerOperation.SaveInvoiceAddress?null:
-                Redact(await Read(db,customer,ct),Can("BankView"),Can("InternalNotes"));
+                Redact(await Read(db,customer,ct),Can("BankView"),admin);
             ct.ThrowIfCancellationRequested();await transaction.CommitAsync(ct);
             return new(CustomerOutcome.Success,context,detail,AddressId:savedAddressId);
         }
@@ -179,19 +204,23 @@ public sealed class CustomerStore(DevelopmentDatabase database) : ICustomerStore
         Draft=detail.Draft with { Bank=bank?detail.Draft.Bank:null, InternalRemarks=internalNotes?detail.Draft.InternalRemarks:null }
     };
 
-    private static async Task<string?> NextCustomerCodeAsync(BillingDbContext db,Guid companyId,string companyCode,CancellationToken ct)
+    private static async Task<string?> NextCustomerCodeAsync(BillingDbContext db,Guid companyId,string companyCode,
+        string legalName,bool graftex,CancellationToken ct)
     {
-        var prefix=companyCode+"CUST";
+        var word=graftex?System.Text.RegularExpressions.Regex.Match(legalName,@"\p{L}[\p{L}\p{M}\p{Nd}]*").Value:"";
+        var prefix=graftex?new string(word.Normalize(System.Text.NormalizationForm.FormD).ToUpperInvariant()
+            .Where(character=>character is >= 'A' and <= 'Z').Take(3).ToArray()).PadRight(3,'X')+"-":companyCode+"CUST";
         long highest=0;
-        var codes=db.Set<Customer>().Where(x=>x.CompanyId==companyId&&x.Code.StartsWith(prefix)).Select(x=>x.Code);
+        var codes=db.Set<Customer>().Where(x=>x.CompanyId==companyId&&(graftex || x.Code.StartsWith(prefix))).Select(x=>x.Code);
         await foreach(var code in codes.AsAsyncEnumerable().WithCancellation(ct))
         {
+            if(graftex && (code.Length<8 || code[3]!='-' || code.Take(3).Any(character=>character is <'A' or >'Z'))) continue;
             if(long.TryParse(code.AsSpan(prefix.Length),NumberStyles.None,CultureInfo.InvariantCulture,out var number))
                 highest=Math.Max(highest,number);
         }
         // Allocation and insert share the SQLite write transaction. The unique index is the final guard.
         if(highest==long.MaxValue) return null;
-        var next=prefix+(highest+1).ToString("D3",CultureInfo.InvariantCulture);
+        var next=prefix+(highest+1).ToString(graftex?"D4":"D3",CultureInfo.InvariantCulture);
         return next.Length<=40?next:null;
     }
 
@@ -316,7 +345,8 @@ public sealed class CustomerStore(DevelopmentDatabase database) : ICustomerStore
             d.TradeName,d.DisplayName,d.Gstin,request.IncludePan?d.Pan:null,d.RegistrationType,d.GstLegalName,d.GstStateCode,d.SupplyClassification,d.GstEffectiveDate,
             Address(bill),Address(ship),contact is not null?new(contact.Id!.Value,contact.Name,contact.Designation,request.IncludeContactDetails?contact.Mobile:null,request.IncludeContactDetails?contact.Email:null):null,
             request.IncludeContactDetails?contact?.Mobile??bill.Mobile??d.Mobile:null,request.IncludeContactDetails?contact?.Email??bill.Email??d.Email:null,
-            d.Credit.PurchaseOrderRequired,d.Credit.PaymentTerms,d.Credit.CreditDays,d.Credit.DeliveryMethod,d.Credit.Currency);
+            d.Credit.PurchaseOrderRequired,d.Credit.PaymentTerms,d.Credit.CreditDays,d.Credit.DeliveryMethod,d.Credit.Currency,
+            request.IncludeAadhaarSuffix?d.AadhaarLastFour:null);
         return new(CustomerOutcome.Success,context,Snapshot:snapshot);
     }
 
@@ -328,9 +358,11 @@ public sealed class CustomerStore(DevelopmentDatabase database) : ICustomerStore
         if(!string.IsNullOrWhiteSpace(filter.Search))
         {
             var text=filter.Search.Trim();var normalized=CustomerRules.NormalizeName(text);
+            var searchTradeName=request.Operation!=CustomerOperation.List ||
+                ConfigurationModule.CustomerMode(await SettingsStore.ReadCompanyAsync(db,context.CompanyId,ct),"TradeName")!="Hidden";
             var phone=text.All(x=>char.IsAsciiDigit(x)||x is '+' or '(' or ')' or ' ' or '.' or '-')?CustomerRules.NormalizePhone(text):null;
             query=query.Where(x=>x.Code.Contains(normalized)||x.NormalizedName.Contains(normalized)||
-                x.NormalizedTradeName!=null&&x.NormalizedTradeName.Contains(normalized)||x.Gstin!=null&&x.Gstin.Contains(normalized)||
+                searchTradeName&&x.NormalizedTradeName!=null&&x.NormalizedTradeName.Contains(normalized)||x.Gstin!=null&&x.Gstin.Contains(normalized)||
                 db.Set<CustomerAddress>().Any(a=>a.CompanyId==context.CompanyId&&a.CustomerId==x.Id&&a.IsActive&&a.City.ToUpper().Contains(normalized))||
                 phone!=null&&x.NormalizedMobile!=null&&x.NormalizedMobile.Contains(phone)||
                 phone!=null&&db.Set<CustomerContact>().Any(c=>c.CompanyId==context.CompanyId&&c.CustomerId==x.Id&&c.IsActive&&c.NormalizedMobile!=null&&c.NormalizedMobile.Contains(phone)));

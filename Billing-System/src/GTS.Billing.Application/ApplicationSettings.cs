@@ -2,10 +2,10 @@ using System.Collections.Immutable;
 
 namespace GTS.Billing.Application;
 
-public enum SettingsAction { Runtime, List, Save, Security, SalesFormHistory }
+public enum SettingsAction { Runtime, List, Save, Security, SalesFormHistory, ConfigurationHistory, ConfigurationSources, CopyConfiguration }
 public sealed record SettingEdit(string Key,string? Text,long? Version);
 public sealed record SettingsRequest(SettingsAction Action,SettingScope Scope=SettingScope.Application,
-    Guid? ExpectedCompanyId=null,string? Section=null,IReadOnlyList<SettingEdit>? Changes=null);
+    Guid? ExpectedCompanyId=null,string? Section=null,IReadOnlyList<SettingEdit>? Changes=null,Guid? SourceCompanyId=null);
 public sealed record SettingEntry(SettingDefinition Definition,SettingScope Scope,string EffectiveText,string? StoredText,
     long? Version,DateTime? UpdatedUtc,string? UpdatedBy,bool CanEdit)
 {
@@ -24,7 +24,10 @@ public sealed record SettingEntry(SettingDefinition Definition,SettingScope Scop
 }
 public sealed record SettingsResult(CompanyOutcome Outcome,IReadOnlyList<SettingEntry>? Entries=null,ResolvedSettings? Runtime=null,
     string? Message=null,string? InvalidKey=null,Guid? CurrentCompanyId=null,
-    IReadOnlyList<SalesFormVersion>? SalesFormVersions=null);
+    IReadOnlyList<SalesFormVersion>? SalesFormVersions=null,IReadOnlyList<ConfigurationSource>? ConfigurationSources=null,
+    IReadOnlyList<ConfigurationAuditEntry>? ConfigurationHistory=null,bool GraftexSalesEntry=false);
+public sealed record ConfigurationSource(Guid Id,string Name);
+public sealed record ConfigurationAuditEntry(DateTime AtUtc,string? Actor,string Action,string Key,string Changes);
 public sealed record SalesFormVersion(Guid Id,DateTime AtUtc,Guid? ActorId,string Json)
 {
     public string Label=>$"{AtUtc:u} · {Id.ToString("N")[..8]}";

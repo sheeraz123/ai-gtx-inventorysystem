@@ -17,6 +17,7 @@ internal sealed class SalesFormConfigurationDialog : Window
     private readonly Func<Task<SettingsResult>> history;
     private readonly List<Row> rows;
     private readonly Dictionary<string,SalesFormRule> original;
+    private readonly SalesFormConfiguration baseline;
     private readonly NoticeBanner notice=new();
     private readonly TextBox search=new() {Width=185};
     private readonly ComboBox section=new() {MinWidth=140};
@@ -28,7 +29,7 @@ internal sealed class SalesFormConfigurationDialog : Window
     private Point dragStart;
 
     internal SalesFormConfigurationDialog(Window owner,string company,IReadOnlyList<SettingEntry> entries,
-        Func<SettingEdit[],Task<SettingsResult>> save,Func<Task<SettingsResult>> history)
+        Func<SettingEdit[],Task<SettingsResult>> save,Func<Task<SettingsResult>> history,bool graftex=false)
     {
         this.entries=entries;this.save=save;this.history=history;
         Owner=owner;Title="Sales Invoice Configuration";
@@ -37,8 +38,10 @@ internal sealed class SalesFormConfigurationDialog : Window
         SetResourceReference(BackgroundProperty,"Palette.Surface");
         SetResourceReference(ForegroundProperty,"Palette.Text");
         var stored=entries.ToDictionary(x=>x.Key,StringComparer.Ordinal);
+        baseline=graftex?SalesFormConfiguration.Empty.ApplyGraftexDefaults():SalesFormConfiguration.Empty;
         rows=SalesFormConfiguration.Fields.Select(field=>new Row(field,
-            stored.TryGetValue(field.Setting.Key,out var item) && field.Parse(item.EffectiveText) is {Valid:true} value?value.Value:field.Baseline)).ToList();
+            stored.TryGetValue(field.Setting.Key,out var item) && item.StoredText is { } saved &&
+            field.Parse(saved) is {Valid:true} value?value.Value:baseline.Field(field.Key))).ToList();
         original=rows.ToDictionary(row=>row.Key,row=>row.Rule(),StringComparer.Ordinal);
         editable=entries.Any(x=>x.CanEdit);
         grid.IsReadOnly=true;
@@ -139,10 +142,7 @@ internal sealed class SalesFormConfigurationDialog : Window
         var order=dialog.Text("Display order",current.Order.ToString(),4);
         var value=dialog.Text("Default value",current.Default,140,locked:!field.TextDefault);
         var visible=Choice("Show in entry",current.Visible,!field.CanHideInEntry);
-        if(field.CanCollapseForReview)
-            dialog.ShowMessage(readOnly?"View mode. Select Edit configuration to change visibility.":
-                "Choose No to hide this control during normal entry. Use Review GST details to edit it. GST review remains required.",NoticeKind.Information);
-        var required=Choice("Required",current.Required,!field.TextDefault);
+        var required=Choice("Required",current.Required,!field.CanChooseRequired);
         var locked=Choice("Read-only",current.ReadOnly,!field.TextDefault || field.Key=="PurchaseOrder");
         var validate=Choice("Validate configured requirement",current.Validate,!field.TextDefault);
         var preview=Choice("Include in preview",current.Preview,!field.Output);
@@ -175,7 +175,7 @@ internal sealed class SalesFormConfigurationDialog : Window
             if(!known.TryGetValue(key,out var row) || !row.Field.Parse(JsonSerializer.Serialize(rule)).Valid)
             {Report("Layout contains an unsupported or invalid rule: "+key,NoticeKind.Error);return;}
         foreach(var row in rows) row.Value=imported.TryGetValue(row.Key,out var rule)
-            ?row.Field.Parse(JsonSerializer.Serialize(rule)).Value:row.Field.Baseline;
+            ?row.Field.Parse(JsonSerializer.Serialize(rule)).Value:baseline.Field(row.Key);
         Refresh();
         Report("Layout loaded. Save configuration to apply it to this company.",NoticeKind.Information);
     }
@@ -263,7 +263,7 @@ internal sealed class SalesFormConfigurationDialog : Window
         var changes=rows.Where(row=>row.Rule()!=original[row.Key]).Select(row=>
         {
             var key=row.Field.Setting.Key;
-            return new SettingEdit(key,row.Rule()==row.Field.Baseline?null:JsonSerializer.Serialize(row.Rule()),
+            return new SettingEdit(key,row.Rule()==baseline.Field(row.Key)?null:JsonSerializer.Serialize(row.Rule()),
                 version.GetValueOrDefault(key)?.Version);
         }).ToArray();
         if(changes.Length==0){Report("No layout changes to save.",NoticeKind.Information);return;}

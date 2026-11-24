@@ -90,10 +90,15 @@ internal sealed class ClassicInvoiceLayout(InvoicePrintModel invoice, string? co
                 Show("Iec")?Field("IEC No.",seller.Iec):null), 11, true),
             Text(Label("Title", "Tax Invoice").ToUpperInvariant(), 12, true, TextAlignment.Center),
             Text(Show("CompanyEmail")?Field("Email",seller.Email):null, 10, true, TextAlignment.Right));
-        var identity = Stack(Text(name, 30, true, TextAlignment.Center, "Georgia"),
-            Text(Lines(Options?.Tagline, presentation.Header), 11, true, TextAlignment.Center),
-            Text(Lines(Show("CompanyAddress")?seller.Address:null, Join(Field("State code", seller.StateCode),
-                Show("CompanyContact") && Show("CompanyPhone") ? Field("Phone", seller.Phone) : null)), 10, false, TextAlignment.Center));
+        var tagline=Text(string.Join(Environment.NewLine,seller.InvoiceTaglines()),11,true,TextAlignment.Center);
+        tagline.TextDecorations=TextDecorations.Underline;
+        var identity = Stack(Text(name, 30, true, TextAlignment.Center, "Georgia"));
+        if(tagline.Text.Length>0) identity.Children.Add(tagline);
+        if(!string.IsNullOrWhiteSpace(presentation.Header))
+            identity.Children.Add(Text(presentation.Header,11,true,TextAlignment.Center));
+        identity.Children.Add(Text(Lines(Show("CompanyAddress")?seller.Address:null,
+                Show("CompanyContact") && Show("CompanyPhone")?Field("Phone",seller.InvoicePhones()):null),
+                10,true,TextAlignment.Center));
         var branding = Columns([19, 62, 19], false, Logo(presentation.Primary), identity, Logo(presentation.Secondary));
         branding.MinHeight = 83;
         var number = Columns([14, 36, 10, 40], true,
@@ -109,20 +114,33 @@ internal sealed class ClassicInvoiceLayout(InvoicePrintModel invoice, string? co
         return result;
     }
 
-    private FrameworkElement Address(string title, CustomerAddressSnapshot address, bool billing) =>
-        Stack(Text(title, 11, true), Text(billing ? invoice.Customer.LegalName : address.RecipientName, 12, true),
-            Text(Lines(address.Organization, address.Line1, address.Line2, address.Landmark, address.Locality,
-                Join(address.City, address.District, address.PostalCode), Join(Field("State", address.State),
-                    Field("Code", address.StateCode), address.Country),
-                Field("GSTIN", invoice.Customer.Gstin),
-                Show("CustomerContact") ? Field("Phone", address.Mobile ?? (billing ? invoice.Customer.ContactNumber : null)) : null), 11));
+    private FrameworkElement Address(string title, CustomerAddressSnapshot address, bool billing)
+    {
+        var partyName=billing?invoice.Customer.LegalName:address.RecipientName;
+        var cityAndPin=string.Join("-",new[]{address.City,address.PostalCode}.Where(x=>!string.IsNullOrWhiteSpace(x)));
+        var locality=string.IsNullOrWhiteSpace(address.District)?cityAndPin:$"{cityAndPin} ({address.District})";
+        var street=Text(Lines(address.Line1,address.Line2,address.Landmark,address.Locality),11,billing);
+        street.Margin=new Thickness(0,4,0,5);
+        var block=Stack(Text(title,11,true),Text(partyName,12,billing),street,Text(locality,11,billing),
+            Columns([66,34],false,Labeled("State",address.State,11),Labeled("Code",address.StateCode,11)));
+        if(billing)
+        {
+            var mobile=Show("CustomerContact")?address.Mobile??invoice.Customer.ContactNumber:null;
+            var suffix=invoice.Customer.AadhaarLastFour;
+            var masked=suffix is {Length:4} && suffix.All(char.IsAsciiDigit)?$"XXXX XXXX {suffix}":null;
+            block.Children.Add(Columns([66,34],false,Labeled("GSTIN",invoice.Customer.Gstin,11),Labeled("Aadhaar",masked,11)));
+            block.Children.Add(Columns([66,34],false,Text(Field("Mob",mobile),11),Labeled("PIN CODE",address.PostalCode,11)));
+        }
+        else block.Children.Add(Labeled("GSTIN",invoice.Customer.Gstin,11));
+        return block;
+    }
 
     private FrameworkElement GoodsHeading()
     {
         var grid = GridFor(Goods);
         grid.RowDefinitions.Add(new RowDefinition());
         grid.RowDefinitions.Add(new RowDefinition());
-        string[] headings = ["Sr.\nNo.", "Description of Goods", "M.R.P.", "HSN /\nSAC", "Qty.", "Rate",
+        string[] headings = ["Sr.\nNo.", "Description of Goods", "M.R.P.", "HSC\nCode", "Qty.", "Rate",
             "Discount", "", "Taxable\nAmount", "Tax Slab\n%", "Amount"];
         for (var index = 0; index < headings.Length; index++)
         {
@@ -168,15 +186,16 @@ internal sealed class ClassicInvoiceLayout(InvoicePrintModel invoice, string? co
                 Field("UPI", bank.Upi), bank.Instructions), 11));
         var header = invoice.Header;
         var shipping = header.Transport;
-        var transport = Columns([44, 56], true,
-            Text(Lines(Field("G.R. No.", shipping?.GoodsReceipt), Field("Weight", shipping?.Weight),
-                Field("Transport", shipping?.Carrier), Field("Pvt. Mark", shipping?.PrivateMark),
-                Field("Document", shipping?.Document), Field("Reference", Output("Reference")?header.Reference:null),
-                Field("Payment terms", Output("Terms")?header.Terms:null),
-                header.DueDate is { } due ? Field("Due date", due.ToString("dd/MM/yyyy", India)) : null), 10),
-            Text(Lines(Field("Vehicle No.", shipping?.Vehicle), Field("Order Through", shipping?.OrderThrough),
-                Field("Prepared By", shipping?.PreparedBy), Field("Customer PO", Join(header.PurchaseOrder, header.PurchaseOrderDate?.ToString("dd/MM/yyyy", India))),
-                Field("Place of supply", header.PlaceOfSupply)), 10));
+        var transportRight=new DockPanel();
+        var prepared=Labeled("Prepared By",shipping?.PreparedBy,10);
+        DockPanel.SetDock(prepared,Dock.Bottom);
+        transportRight.Children.Add(prepared);
+        transportRight.Children.Add(Stack(Labeled("Vehicle No.",shipping?.Vehicle,10),
+            Labeled("Order Through",shipping?.OrderThrough,10)));
+        var transport=Columns([43,57],true,
+            Stack(Labeled("G.R. No.",shipping?.GoodsReceipt,10),Labeled("Weight",shipping?.Weight,10),
+                Labeled("Transport",shipping?.Carrier,10),Labeled("Pvt. Mark",shipping?.PrivateMark,10),
+                Labeled("Document",shipping?.Document,10)),transportRight);
         var terms = Text(Lines(Show("Terms")?presentation.Terms:null, Output("Notes")?header.Notes:null, Options?.Remarks,
             Show("FooterNotes") ? Options?.FooterNotes : null, Show("FooterNotes") ? presentation.Footer : null), 10);
         var signatureImage = Logo(Show("Signatory") ? presentation.Signature : null);
@@ -315,6 +334,14 @@ internal sealed class ClassicInvoiceLayout(InvoicePrintModel invoice, string? co
         text.Foreground = Brushes.White;
         text.Background = Brushes.Black;
         return text;
+    }
+
+    private static TextBlock Labeled(string label,string? value,double size)
+    {
+        var block=Text(null,size);
+        block.Inlines.Add(new Run(label+" : ") {FontWeight=FontWeights.Bold});
+        if(!string.IsNullOrWhiteSpace(value)) block.Inlines.Add(new Run(value));
+        return block;
     }
 
     private string CompanyName() => string.IsNullOrWhiteSpace(Options?.CompanyName) ? invoice.Seller.Name : Options.CompanyName;

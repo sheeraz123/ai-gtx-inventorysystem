@@ -770,6 +770,9 @@ namespace GTS.Billing.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("AadhaarLastFour")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("BillingInstructions")
                         .HasColumnType("TEXT");
 
@@ -918,6 +921,8 @@ namespace GTS.Billing.Infrastructure.Migrations
 
                     b.ToTable("Customers", null, t =>
                         {
+                            t.HasCheckConstraint("CK_Customer_AadhaarSuffix", "AadhaarLastFour IS NULL OR AadhaarLastFour GLOB '[0-9][0-9][0-9][0-9]'");
+
                             t.HasCheckConstraint("CK_Customer_Credit", "typeof(CreditLimit) = 'integer' AND CreditLimit BETWEEN 0 AND 999999999999999999 AND typeof(CreditDays) = 'integer' AND CreditDays BETWEEN 0 AND 36500");
 
                             t.HasCheckConstraint("CK_Customer_Currency", "length(Currency) = 3 AND Currency NOT GLOB '*[^A-Z]*'");

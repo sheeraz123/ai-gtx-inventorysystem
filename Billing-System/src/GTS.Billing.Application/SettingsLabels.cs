@@ -320,6 +320,7 @@ public static partial class SettingsRegistry
         yield return Label("Field.Company.Tan","TAN","TAN");
         yield return Label("Field.Company.Cin","CIN / LLPIN","CIN / LLPIN");
         yield return Label("Field.Company.Udyam","MSME / Udyam","MSME / Udyam");
+        yield return Label("Field.Company.Iec","IEC No.","IEC No.");
         yield return Label("Field.CompanyPresentation.Name","Logo name *","Logo name *");
         yield return Label("Field.CompanyPresentation.Order","Sort order","Sort order");
         yield return Label("Field.CompanyPresentation.NameBankName","Bank name *","Bank name *");

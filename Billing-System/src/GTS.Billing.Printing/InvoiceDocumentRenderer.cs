@@ -69,12 +69,12 @@ public static class InvoiceDocumentRenderer
             if(!string.IsNullOrWhiteSpace(invoice.Seller.DisplayName) &&
                 invoice.Seller.DisplayName!=(options?.CompanyName??invoice.Seller.Name))
                 AddText(invoice.Seller.DisplayName);
-            AddText(options?.Tagline);
+            foreach(var tagline in invoice.Seller.InvoiceTaglines()) AddText(tagline,underline:true);
             AddText(presentation.Header);
             if(!NewLayout || Show("CompanyAddress")) AddText(invoice.Seller.Address);
             AddText(Join($"{Label("Gstin","GSTIN")} {invoice.Seller.Gstin}",
-                $"State code {invoice.Seller.StateCode}",NewLayout && Show("Iec")?Value("IEC",invoice.Seller.Iec):null));
-            if(Show("CompanyContact")) AddText(Join(!NewLayout || Show("CompanyPhone")?invoice.Seller.Phone:null,
+                $"State code {invoice.Seller.StateCode}",Show("Iec")?Value("IEC No.",invoice.Seller.Iec):null));
+            if(Show("CompanyContact")) AddText(Join(Show("CompanyPhone")?Value("Phone",invoice.Seller.InvoicePhones()):null,
                 !NewLayout || Show("CompanyEmail")?invoice.Seller.Email:null));
             AddText($"{Label("InvoiceNumber","Invoice number")} {invoice.Number} · {Label("InvoiceDate","Invoice date")} {Date(invoice.Header.Date)}",bold:true);
             AddText(Join(Value("Financial year",invoice.FinancialYearCode),Value("Series",invoice.DocumentSeriesCode),
@@ -213,6 +213,7 @@ public static class InvoiceDocumentRenderer
             totalsBlock.Children.Add(Cells([Label("Total","Grand Total"),
                 Join(currency=="No symbol"?null:currency??"INR",Amount(totals.Total))],[.58,.42],true));
             Add(totalsBlock);
+            AddText("Amount in words: Rupees "+IndianAmountWords.Format(totals.Total),bold:true);
             if(Output("Terms")) AddText(Value(Label("PaymentTerms","Payment terms"),invoice.Header.Terms));
             if(invoice.Header.DueDate is DateOnly due) AddText("Due date — "+Date(due));
             if(invoice.Seller.Presentation.Bank is { } bank)
@@ -272,7 +273,7 @@ public static class InvoiceDocumentRenderer
             return Math.Ceiling(element.DesiredSize.Height);
         }
 
-        private void AddText(string? value,double? size=null,bool bold=false)
+        private void AddText(string? value,double? size=null,bool bold=false,bool underline=false)
         {
             if(string.IsNullOrWhiteSpace(value)) return;
             var parsed=new StringInfo(value);
@@ -280,6 +281,7 @@ public static class InvoiceDocumentRenderer
             void AddRange(StringInfo text,int start,int count)
             {
                 var block=Text(text.SubstringByTextElements(start,count),size??font,bold);
+                if(underline) block.TextDecorations=TextDecorations.Underline;
                 if(Measure(block)<=contentHeight-100 || count<=1) {Add(block);return;}
                 var middle=count/2;
                 AddRange(text,start,middle);AddRange(text,start+middle,count-middle);

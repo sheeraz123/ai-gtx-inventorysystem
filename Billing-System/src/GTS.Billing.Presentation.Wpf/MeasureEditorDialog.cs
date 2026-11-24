@@ -370,6 +370,48 @@ internal sealed class MeasureEditorDialog : Window
     }
 
     internal void OrderConfiguredSections()=>OrderConfigured(fields);
+    internal void ApplyInvoiceEntryLayout(string layout,FrameworkElement header,FrameworkElement products,
+        FrameworkElement? customer,FrameworkElement addresses)
+    {
+        if(customer is not null)
+        {
+            fields.Children.Remove(customer);
+            fields.Children.Insert(fields.Children.IndexOf(header)+1,customer);
+            fields.Children.Remove(addresses);
+            fields.Children.Insert(fields.Children.IndexOf(customer)+1,addresses);
+        }
+        if(layout=="Legacy Keyboard-Friendly")
+        {
+            fields.Children.Remove(products);
+            fields.Children.Insert(fields.Children.IndexOf(customer is null?header:addresses)+1,products);
+        }
+        else if(layout=="Split Layout" && Width>=1100)
+        {
+            var stack=new StackPanel {Margin=new Thickness(0,0,12,0)};
+            var grid=new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(2,GridUnitType.Star)});
+            grid.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(3,GridUnitType.Star)});
+            var sections=fields.Children.Cast<UIElement>().ToArray();
+            fields.Children.Clear();
+            foreach(var section in sections.Where(section=>section!=products &&
+                (customer is null || section!=header && section!=customer && section!=addresses))) stack.Children.Add(section);
+            grid.Children.Add(stack);
+            Grid.SetColumn(products,1);
+            grid.Children.Add(products);
+            if(customer is not null)
+            {
+                fields.Children.Add(header);
+                fields.Children.Add(customer);
+                fields.Children.Add(addresses);
+            }
+            fields.Children.Add(grid);
+        }
+        else if(customer is not null && fields.Children.IndexOf(products)<fields.Children.IndexOf(addresses))
+        {
+            fields.Children.Remove(products);
+            fields.Children.Insert(fields.Children.IndexOf(addresses)+1,products);
+        }
+    }
     internal static void OrderConfigured(Panel panel)
     {
         var items=panel.Children.Cast<UIElement>().ToArray();
@@ -387,10 +429,21 @@ internal sealed class MeasureEditorDialog : Window
         message.Text=text;
     }
 
-    internal void Save(Func<Task<string?>> operation,string label="Save")
+    internal void RemoveEditorFields(IEnumerable<Control> controls)
+    {
+        foreach(var control in controls) fieldErrors.Remove(control);
+    }
+
+    internal void Save(Func<Task<string?>> operation,string label="Save",bool primary=false,Panel? panel=null,string? icon=null)
     {
         if (readOnly) return;
-        var save = Button(label, actions);
+        var save = Button(label, panel??actions);
+        if(icon is not null) BillingIcon.Set(save,label,icon);
+        if(primary && !SystemParameters.HighContrast)
+        {
+            save.SetResourceReference(Control.BackgroundProperty,"Palette.InvoiceAccent");
+            save.Foreground=Brushes.White;
+        }
         save.Click += async (_,_) =>
         {
             if (saving) return;
@@ -403,7 +456,7 @@ internal sealed class MeasureEditorDialog : Window
                 saving = false;
                 fields.IsEnabled = actions.IsEnabled = true;
             }
-            if (message.Text.Length != 0) return;
+            if (panel is not null || message.Text.Length != 0) return;
             discard = true;
             Close();
         };

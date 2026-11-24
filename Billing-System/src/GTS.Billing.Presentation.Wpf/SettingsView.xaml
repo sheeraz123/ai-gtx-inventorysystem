@@ -14,7 +14,7 @@
    <ProgressBar Height="4" IsIndeterminate="True" Visibility="{Binding Busy,Converter={StaticResource Visible}}"/>
   </StackPanel>
   <ListBox DockPanel.Dock="Left" Width="182" Margin="0,0,12,0" ItemsSource="{Binding Sections}"
-   SelectedItem="{Binding Section}" DisplayMemberPath="Name" AutomationProperties.Name="Settings sections">
+   SelectedItem="{Binding Section}" DisplayMemberPath="Caption" AutomationProperties.Name="Settings sections">
    <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="Padding" Value="8,6"/></Style></ListBox.ItemContainerStyle>
   </ListBox>
   <Grid>
@@ -24,6 +24,13 @@
      <DataTrigger Binding="{Binding ShowSecurity}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
     </Style.Triggers></Style></DockPanel.Style>
     <StackPanel DockPanel.Dock="Top">
+     <StackPanel Orientation="Horizontal" Margin="0,0,0,9"
+       Visibility="{Binding IsFormsConfiguration,Converter={StaticResource Visible}}">
+      <Label Content="_Configure" Target="{Binding ElementName=ConfigurationModuleSelector}"/>
+      <local:SearchableComboBox x:Name="ConfigurationModuleSelector" Width="260"
+        SearchItemsSource="{Binding ConfigurationModules}" SelectedItem="{Binding SelectedConfigurationModule,Mode=TwoWay}"
+        DisplayMemberPath="Caption" AutomationProperties.Name="Configuration module"/>
+     </StackPanel>
      <WrapPanel Margin="0,0,0,7">
       <ComboBox ItemsSource="{Binding Scopes}" SelectedItem="{Binding Scope}" DisplayMemberPath="Label" Width="142"
        Margin="0,0,8,0" AutomationProperties.Name="Settings scope"/>
@@ -33,10 +40,14 @@
        Visibility="{Binding IsTextSection,Converter={StaticResource Visible}}"/>
      </WrapPanel>
      <WrapPanel>
+      <Button Content="View configuration changes" Command="{Binding ViewConfigurationHistoryCommand}"
+        Visibility="{Binding IsConfigurationHistory,Converter={StaticResource Visible}}"/>
+      <Button Content="Copy configuration from a company" Command="{Binding CopyConfigurationCommand}"
+        Visibility="{Binding IsConfigurationHistory,Converter={StaticResource Visible}}"/>
       <Button Content="{DynamicResource Display.Common.View}" Command="{Binding ViewCommand}"/>
       <Button Content="Configure invoice fields" Command="{Binding OpenSalesLayoutCommand}"
         Visibility="{Binding IsSalesLayoutSection,Converter={StaticResource Visible}}" IsEnabled="{Binding CanList}"/>
-      <Button Content="Restore section defaults" Command="{Binding RestoreSectionCommand}"/>
+      <Button Content="{Binding ResetSectionCaption}" Command="{Binding RestoreSectionCommand}"/>
       <Button Content="Preview invoice settings" Command="{Binding PreviewCommand}"
         Visibility="{Binding CanPreviewInvoice,Converter={StaticResource Visible}}" IsEnabled="{Binding CanList}"/>
      </WrapPanel>

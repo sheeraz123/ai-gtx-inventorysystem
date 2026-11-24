@@ -101,6 +101,8 @@ public static class CustomerRules
         Lengths(v,"",errors);Lengths(v.Credit,"Credit.",errors);Lengths(v.Opening,"Opening.",errors);
         if(!assignCodeOnSave && !Match(v.Code,"^[A-Z0-9][A-Z0-9/_-]{0,39}$")) errors["Code"]="Use 1–40 letters, digits, slash, underscore or hyphen.";
         Required(v.LegalName,"LegalName",errors);
+        if(v.AadhaarLastFour is { } suffix && (suffix.Length!=4 || !suffix.All(char.IsAsciiDigit)))
+            errors[nameof(v.AadhaarLastFour)]="Enter only the last four Aadhaar digits, or leave the field blank.";
         if(!Types.Contains(v.CustomerType)) errors["CustomerType"]="Select a customer type.";
         if(!Statuses.Contains(v.Status)) errors["Status"]="Select a supported status.";
         if(!Registrations.Contains(v.RegistrationType)) errors["RegistrationType"]="Select a supported registration type.";

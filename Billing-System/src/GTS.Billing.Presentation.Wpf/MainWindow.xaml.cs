@@ -1,4 +1,7 @@
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.IO;
 using GTS.Billing.Application;
 using GTS.Billing.Infrastructure;
@@ -10,6 +13,7 @@ public partial class MainWindow : Window
     private readonly CancellationTokenSource lifetime = new();
     private bool closingRequested;
     private bool wasSignedIn;
+    private bool leftNavigationRefreshPending;
     private int accessRequest;
     private int settingsRequest;
     private SettingsStore? loginSettings;
@@ -34,12 +38,44 @@ public partial class MainWindow : Window
         SecurityAdministrationViewModel? security=null,SecurityAdministrationService? securityService=null,
         SettingsViewModel? settings=null,ApplicationSettingsService? settingsService=null,UnitBrandViewModel? unitBrand=null,
         TaxViewModel? tax=null,NumberingViewModel? numbering=null,SalesInvoiceViewModel? sales=null,
-        ProductVariantService? variants=null)
+        ProductVariantService? variants=null,EnvelopePrintingViewModel? envelope=null,
+        GTS.Billing.Printing.EnvelopePrintService? envelopePrinter=null)
     {
         SettingsDisplay.Instance.Apply(ResolvedSettings.Empty);
         InitializeComponent();
         DataContext = viewModel;
+        SettingsDisplay.Instance.Changed+=(_,_)=>ApplyNavigationPosition();
+        viewModel.PropertyChanged+=(_,e)=>
+        {
+            if (e.PropertyName is nameof(ShellViewModel.SelectedModule) or nameof(ShellViewModel.MasterMenu)
+                or nameof(ShellViewModel.TransactionMenu) or nameof(ShellViewModel.PrintingMenu)
+                or nameof(ShellViewModel.AdministrationMenu) or nameof(ShellViewModel.CanSeeReports))
+                QueueLeftNavigationRefresh();
+        };
+        ApplyNavigationPosition();
         this.authentication = authentication;
+        PreviewKeyDown+=(_,eventArgs)=>
+        {
+            if(!IsBillingShellVisible || !IsEnabled || authentication.Busy || eventArgs.IsRepeat ||
+                Keyboard.FocusedElement is TextBoxBase or PasswordBox or ComboBox) return;
+            var key=eventArgs.Key==Key.System?eventArgs.SystemKey:eventArgs.Key;
+            var gesture=Keyboard.Modifiers switch
+            {
+                ModifierKeys.None when key is >=Key.F1 and <=Key.F12=>key.ToString(),
+                (ModifierKeys.Control|ModifierKeys.Shift) when key is >=Key.A and <=Key.Z=>$"Ctrl+Shift+{key}",
+                _=>null
+            };
+            if(gesture is null) return;
+            bool Assigned(string id)=>SettingsDisplay.Current.Text("Configuration.Shortcut."+id,"Disabled")==gesture;
+            foreach(var (id,menu) in new[]{("master",MasterMenuHeader),("transactions",TransactionMenuHeader),("printing",PrintingMenuHeader),
+                ("administration",AdministrationMenuHeader)})
+                if(Assigned(id) && menu.IsVisible && menu.IsEnabled)
+                {menu.Focus();menu.IsSubmenuOpen=true;eventArgs.Handled=true;return;}
+            var target=ShellViewModel.ModuleCatalog.FirstOrDefault(module=>Assigned(module.Code) && viewModel.CanNavigate(module));
+            if(target is null) return;
+            viewModel.NavigateCommand.Execute(target);
+            eventArgs.Handled=true;
+        };
         CompanyPanel.DataContext = companies;
         CustomerPanel.DataContext = customers;
         CatalogPanel.DataContext = catalog;
@@ -48,6 +84,8 @@ public partial class MainWindow : Window
         TaxPanel.DataContext=tax;
         NumberingPanel.DataContext=numbering;
         SalesPanel.DataContext=sales;
+        if(envelope is not null) EnvelopePanel.Configure(envelope,settingsService,envelopePrinter,
+            ()=>viewModel.NavigateCommand.Execute(viewModel.Dashboard));
         if(sales is not null) sales.SessionExpired+=async ()=>await authentication.CheckSessionAsync(lifetime.Token);
         if(numbering is not null) numbering.SessionExpired+=async ()=>await authentication.CheckSessionAsync(lifetime.Token);
         SettingsDisplay.Instance.Changed+=(_,_)=>numbering?.RefreshDisplay();
@@ -103,6 +141,7 @@ public partial class MainWindow : Window
             var isTax=TaxModule(viewModel.SelectedModule.Code) is not null;
             var isNumbering=NumberingModule(viewModel.SelectedModule.Code) is not null;
             var isSales=viewModel.SelectedModule.Code=="invoice";
+            var isEnvelope=viewModel.SelectedModule.Code=="envelope-printing";
             var isSecurity=viewModel.SelectedModule.Code=="users";
             var isSettings=viewModel.SelectedModule.Code=="settings";
             CatalogPanel.Visibility = isCatalog ? Visibility.Visible : Visibility.Collapsed;
@@ -110,9 +149,11 @@ public partial class MainWindow : Window
             TaxPanel.Visibility=isTax?Visibility.Visible:Visibility.Collapsed;
             NumberingPanel.Visibility=isNumbering?Visibility.Visible:Visibility.Collapsed;
             SalesPanel.Visibility=isSales?Visibility.Visible:Visibility.Collapsed;
+            EnvelopePanel.Visibility=isEnvelope?Visibility.Visible:Visibility.Collapsed;
+            envelope?.Open(isEnvelope);
             SecurityPanel.Visibility=isSecurity?Visibility.Visible:Visibility.Collapsed;
             SettingsPanel.Visibility=isSettings?Visibility.Visible:Visibility.Collapsed;
-            PlannedPanel.Visibility = isCompany || isCustomer || isCatalog || isSecurity || isSettings || isUnitBrand || isTax || isNumbering || isSales ? Visibility.Collapsed : Visibility.Visible;
+            PlannedPanel.Visibility = isCompany || isCustomer || isCatalog || isSecurity || isSettings || isUnitBrand || isTax || isNumbering || isSales || isEnvelope ? Visibility.Collapsed : Visibility.Visible;
             if(isSales && authentication.Page==AuthenticationPage.Shell && sales is not null) await sales.OpenAsync();
             else sales?.Clear();
             if(isNumbering && authentication.Page==AuthenticationPage.Shell) await OpenNumberingAsync();
@@ -261,6 +302,7 @@ public partial class MainWindow : Window
             tax?.SetAccess(value);
             numbering?.SetAccess(value);
             sales?.SetAccess(value);
+            envelope?.SetAccess(value);
             security?.SetAccess(value);
             settings?.SetAccess(value);
             viewModel.SetAccess(value);
@@ -326,6 +368,7 @@ public partial class MainWindow : Window
             return;
         }
         var signedIn = authentication.Page == AuthenticationPage.Shell && !authentication.Lifetime.IsStopping;
+        if(!signedIn || authentication.Busy) AccountMenu.IsSubmenuOpen=false;
         SignInNotice.Text=signedIn && authentication.Message==loginPresentation.Get("Success")?authentication.Message:"";
         BillingShell.Visibility = signedIn ? Visibility.Visible : Visibility.Collapsed;
         BillingShell.IsEnabled = !authentication.Busy;
@@ -337,6 +380,114 @@ public partial class MainWindow : Window
     {
         if (sender is System.Windows.Controls.MenuItem { IsEnabled: true, HasItems: true, IsSubmenuOpen: false } item)
             item.SetCurrentValue(System.Windows.Controls.MenuItem.IsSubmenuOpenProperty, true);
+    }
+
+    private void PlaceNavigationSubmenu(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem item || !ReferenceEquals(e.Source, item) ||
+            item.Template?.FindName("PART_Popup", item) is not System.Windows.Controls.Primitives.Popup popup)
+            return;
+
+        popup.SetCurrentValue(System.Windows.Controls.Primitives.Popup.PlacementProperty,
+            DockPanel.GetDock(NavigationHost) switch
+            {
+                Dock.Left => System.Windows.Controls.Primitives.PlacementMode.Right,
+                Dock.Right => System.Windows.Controls.Primitives.PlacementMode.Left,
+                _ => System.Windows.Controls.Primitives.PlacementMode.Bottom
+            });
+    }
+
+    private void ApplyNavigationPosition()
+    {
+        var position=SettingsDisplay.Current.Get(SettingsRegistry.NavigationPosition);
+        var dock=position switch {"LEFT_NAVIGATION"=>Dock.Left,"RIGHT_NAVIGATION"=>Dock.Right,_=>Dock.Top};
+        DockPanel.SetDock(NavigationHost,dock);
+        NavigationHost.Width=dock switch
+        {
+            Dock.Left=>LeftNavigationScroll.Visibility==Visibility.Visible?236:58,
+            Dock.Right=>180,
+            _=>double.NaN
+        };
+        ToggleNavigation.Visibility=dock==Dock.Right?Visibility.Visible:Visibility.Collapsed;
+        LeftNavigation.Visibility=dock==Dock.Left?Visibility.Visible:Visibility.Collapsed;
+        NavigationMenu.Visibility=dock==Dock.Left?Visibility.Collapsed:Visibility.Visible;
+        ToggleNavigation.Content="Hide navigation";
+        var panel=new FrameworkElementFactory(typeof(StackPanel));
+        panel.SetValue(StackPanel.OrientationProperty,dock==Dock.Top?Orientation.Horizontal:Orientation.Vertical);
+        NavigationMenu.ItemsPanel=new ItemsPanelTemplate(panel);
+        QueueLeftNavigationRefresh();
+    }
+
+    private void ToggleLeftNavigationClicked(object sender,RoutedEventArgs e)
+    {
+        var expand=LeftNavigationScroll.Visibility!=Visibility.Visible;
+        LeftNavigationScroll.Visibility=LeftNavigationCompany.Visibility=expand?Visibility.Visible:Visibility.Collapsed;
+        NavigationHost.Width=expand?236:58;
+    }
+
+    private void QueueLeftNavigationRefresh()
+    {
+        if (LeftNavigation.Visibility!=Visibility.Visible || leftNavigationRefreshPending) return;
+        leftNavigationRefreshPending=true;
+        Dispatcher.InvokeAsync(()=>
+        {
+            leftNavigationRefreshPending=false;
+            if (LeftNavigation.Visibility==Visibility.Visible && DataContext is ShellViewModel model)
+                RefreshLeftNavigation(model);
+        });
+    }
+
+    private void RefreshLeftNavigation(ShellViewModel model)
+    {
+        var expanded=LeftNavigationItems.Children.OfType<Expander>()
+            .Where(section=>section.IsExpanded).Select(section=>section.Tag).ToHashSet();
+        LeftNavigationItems.Children.Clear();
+
+        Button Page(string title,PlannedModule module,bool nested)
+        {
+            var selected=module==model.SelectedModule;
+            var button=new Button
+            {
+                Content=new TextBlock {Text=selected?$"●  {title}":title,TextWrapping=TextWrapping.Wrap},
+                Command=model.NavigateCommand,CommandParameter=module,
+                HorizontalContentAlignment=HorizontalAlignment.Left,
+                Padding=new Thickness(nested?24:8,5,8,5),
+                Margin=new Thickness(0,1,0,1),
+                BorderThickness=new Thickness(0),
+                FontWeight=selected?FontWeights.SemiBold:FontWeights.Normal
+            };
+            System.Windows.Automation.AutomationProperties.SetName(button,title);
+            button.SetResourceReference(BackgroundProperty,selected?"Palette.InvoiceHeading":"Palette.Surface");
+            return button;
+        }
+
+        void Section(string key,string title,IReadOnlyList<ShellMenuEntry> entries)
+        {
+            if (entries.Count==0) return;
+            var pages=new StackPanel();
+            foreach (var entry in entries) pages.Children.Add(Page(entry.Title,entry.Module,true));
+            LeftNavigationItems.Children.Add(new Expander
+            {
+                Tag=key,Header=title,Content=pages,HorizontalContentAlignment=HorizontalAlignment.Stretch,
+                IsExpanded=expanded.Contains(key) || entries.Any(entry=>entry.Module==model.SelectedModule),
+                Margin=new Thickness(0,3,0,3)
+            });
+        }
+
+        LeftNavigationItems.Children.Add(Page(model.Dashboard.Caption,model.Dashboard,false));
+        Section("master",model.MasterCaption,model.MasterMenu);
+        Section("transactions",model.TransactionCaption,model.TransactionMenu);
+        if (model.CanSeeReports) LeftNavigationItems.Children.Add(Page(model.ReportsCaption,model.Reports,false));
+        Section("printing",model.PrintingCaption,model.PrintingMenu);
+        Section("administration",model.AdministrationCaption,model.AdministrationMenu);
+    }
+
+    private void ToggleNavigationClicked(object sender,RoutedEventArgs e)
+    {
+        var expanded=NavigationMenu.Visibility!=Visibility.Visible;
+        NavigationMenu.Visibility=expanded?Visibility.Visible:Visibility.Collapsed;
+        ToggleNavigation.Content=expanded?"Hide navigation":"☰";
+        NavigationHost.Width=expanded?180:58;
     }
 
     private async void RegenerateClicked(object sender, RoutedEventArgs e)

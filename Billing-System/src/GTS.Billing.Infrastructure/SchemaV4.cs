@@ -36,6 +36,7 @@ internal static class SchemaV4
     {
         SchemaV3.Configure(m);
         var c=Record<Customer>(m,"Customers");
+        Check(c,"CK_Customer_AadhaarSuffix","AadhaarLastFour IS NULL OR AadhaarLastFour GLOB '[0-9][0-9][0-9][0-9]'");
         c.HasIndex(x=>new{x.CompanyId,x.Code}).IsUnique();
         c.HasIndex(x=>new{x.CompanyId,x.NormalizedName});
         c.HasIndex(x=>new{x.CompanyId,x.Gstin});

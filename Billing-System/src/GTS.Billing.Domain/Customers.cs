@@ -19,6 +19,7 @@ public sealed class Customer : CompanyRecord
     public string RegistrationType {get;set;}="Unregistered";
     public string? Gstin {get;set;}
     public string? Pan {get;set;}
+    public string? AadhaarLastFour {get;set;}
     public string? GstLegalName {get;set;}
     public string? GstStateCode {get;set;}
     public string? SupplyClassification {get;set;}
@@ -185,6 +186,7 @@ public sealed record CustomerDraft
     public string RegistrationType {get;init;}="Unregistered";
     public string? Gstin {get;init;}
     public string? Pan {get;init;}
+    public string? AadhaarLastFour {get;init;}
     public string? GstLegalName {get;init;}
     public string? GstStateCode {get;init;}
     public string? SupplyClassification {get;init;}

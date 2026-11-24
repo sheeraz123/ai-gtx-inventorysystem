@@ -15,6 +15,7 @@ public sealed class SearchableComboBox : ComboBox
     private TextBox? input;
     private ListCollectionView? view;
     private string query="";
+    private bool resettingInput;
     private readonly DispatcherTimer debounce=new();
 
     public SearchableComboBox()
@@ -31,6 +32,13 @@ public sealed class SearchableComboBox : ComboBox
     public static readonly DependencyProperty SearchItemsSourceProperty=DependencyProperty.Register(
         nameof(SearchItemsSource),typeof(IEnumerable),typeof(SearchableComboBox),
         new PropertyMetadata(null,(owner,_)=>((SearchableComboBox)owner).ReplaceSource()));
+
+    public static readonly DependencyProperty RemoteSearchProperty=DependencyProperty.Register(
+        nameof(RemoteSearch),typeof(bool),typeof(SearchableComboBox));
+    public static readonly DependencyProperty SearchQueryProperty=DependencyProperty.Register(
+        nameof(SearchQuery),typeof(string),typeof(SearchableComboBox),new PropertyMetadata(""));
+    public bool RemoteSearch {get=>(bool)GetValue(RemoteSearchProperty);set=>SetValue(RemoteSearchProperty,value);}
+    public string SearchQuery {get=>(string)GetValue(SearchQueryProperty);set=>SetValue(SearchQueryProperty,value);}
 
     private static readonly DependencyPropertyKey SearchMessagePropertyKey=DependencyProperty.RegisterReadOnly(
         nameof(SearchMessage),typeof(string),typeof(SearchableComboBox),new PropertyMetadata("Type at least 3 characters to search."));
@@ -81,21 +89,27 @@ public sealed class SearchableComboBox : ComboBox
 
     private void ReplaceSource()
     {
-        debounce.Stop();
         var previous=view;
-        query="";
-        if(input is not null) input.Clear();
+        var selected=SelectedItem;
+        if(!RemoteSearch)
+        {
+            debounce.Stop();
+            query="";
+            input?.Clear();
+        }
         // One view per dropdown. Searching Billing Address must never filter Shipping Address.
         var items=SearchItemsSource as IList ?? SearchItemsSource?.Cast<object>().ToArray();
         view=items is null?null:new ListCollectionView(items);
         SetCurrentValue(ItemsSourceProperty,view);
+        if(RemoteSearch && selected is not null && view?.Contains(selected)==true)
+            SetCurrentValue(SelectedItemProperty,selected);
         previous?.DetachFromSourceCollection();
         UpdateMessage();
     }
 
     private void SearchChanged(object sender,TextChangedEventArgs e)
     {
-        if(input is null) return;
+        if(input is null || resettingInput) return;
         e.Handled=true;
         debounce.Stop();
         if(MasterSearch.Query(input.Text).Length==0) ApplySearch("");
@@ -111,6 +125,12 @@ public sealed class SearchableComboBox : ComboBox
         var next=MasterSearch.Query(raw);
         if(next==query) return;
         query=next;
+        if(RemoteSearch)
+        {
+            SetCurrentValue(SearchQueryProperty,next);
+            UpdateMessage();
+            return;
+        }
         if(view is not null) view.Filter=query.Length==0?null:item=>Equals(item,SelectedItem) || Matches(item);
         if(GetTemplateChild("PART_Results") is ScrollViewer results) results.ScrollToTop();
         UpdateMessage();
@@ -118,6 +138,16 @@ public sealed class SearchableComboBox : ComboBox
 
     private void ResetSearch()
     {
+        if(RemoteSearch)
+        {
+            resettingInput=true;
+            input?.Clear();
+            resettingInput=false;
+            debounce.Stop();
+            query="";
+            UpdateMessage();
+            return;
+        }
         input?.Clear();
         debounce.Stop();
         ApplySearch("");

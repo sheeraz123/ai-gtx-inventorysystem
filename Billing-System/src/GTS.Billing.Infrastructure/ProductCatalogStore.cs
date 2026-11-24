@@ -50,13 +50,15 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
             if (request.Action == CatalogAction.Context)
                 return new(CompanyOutcome.Success, company, Categories: await Choices(categories, ct),
                     Brands:request.Products ? await brands.OrderBy(x=>x.Name)
-                        .Select(x=>new MeasureChoice(x.Id,x.Code,x.Name,x.Active)).ToArrayAsync(ct) : []);
+                        .Select(x=>new MeasureChoice(x.Id,x.Code,x.Name,x.Active)).ToArrayAsync(ct) : [],
+                    Units:request.Products?await units.Where(x=>x.Active).OrderBy(x=>x.Code)
+                        .Select(x=>new MeasureChoice(x.Id,x.Code,x.Name,x.Active)).ToArrayAsync(ct):[]);
             if (request.Action is CatalogAction.List or CatalogAction.Lookup)
             {
                 var preferences=request.Products && !string.IsNullOrWhiteSpace(request.Search)
                     ?await SettingsStore.ReadCompanyAsync(db,company.Value,ct):ResolvedSettings.Empty;
                 return await List(db,request, company.Value, categories, products, profiles, brands, units, conversions,
-                    preferences.Get(SettingsRegistry.ProductSearch),ct);
+                    preferences,ct);
             }
             var result = request.Products
                 ? await ProductAsync(db, request, company.Value, actor.UserId, categories, products, image,
@@ -87,13 +89,13 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
             var seen = new HashSet<Guid>();
             for (var node = row; node is not null && seen.Add(node.Id); node = node.ParentId is Guid parent ? byId.GetValueOrDefault(parent) : null)
                 path.Push(node.Name);
-            return new CatalogCategory(row.Id, string.Join(" / ", path) + $" [{row.Code}]" + (row.Active ? "" : " (inactive)"), row.Active);
+            return new CatalogCategory(row.Id, string.Join(" / ", path) + $" [{row.Code}]" + (row.Active ? "" : " (inactive)"), row.Active, row.Code);
         }).ToArray();
     }
 
     private static async Task<CatalogResult> List(BillingDbContext db,CatalogRequest request, Guid company, IQueryable<ProductCategory> categories,
         IQueryable<Product> products,IQueryable<ProductMeasureProfile> profiles,IQueryable<Brand> brands,
-        IQueryable<UnitOfMeasure> units,IQueryable<ProductUnitConversion> conversions,string searchFields,CancellationToken ct)
+        IQueryable<UnitOfMeasure> units,IQueryable<ProductUnitConversion> conversions,ResolvedSettings preferences,CancellationToken ct)
     {
         var search = CatalogRules.Normalize(request.Search);
         var pageSize=request.PageSize;
@@ -109,12 +111,21 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
             if (request.Kind is { Length: > 0 } kind) products = products.Where(x => x.Kind == kind);
             if (search.Length >= 3 || request.Action == CatalogAction.Lookup && search.Length > 0)
             {
+                var searchFields=preferences.Get(SettingsRegistry.ProductSearch);
+                bool Visible(string field)=>request.Action==CatalogAction.Lookup || ProductFormConfiguration.EditorFieldVisible(preferences,field);
                 var matchNames=searchFields!="Code, SKU and barcode";
                 var matchIds=searchFields!="Code and names";
                 var matchHsn=searchFields=="All listed fields";
-                products=products.Where(x=>x.Code.Contains(search) || matchNames&&(x.NormalizedName.Contains(search) ||
-                    x.ShortName!=null && x.ShortName.ToUpper().Contains(search)) || matchIds&&(x.Sku!=null && x.Sku.ToUpper().Contains(search) ||
-                    x.Barcode!=null && x.Barcode.ToUpper().Contains(search)) || matchHsn && x.Hsn!=null && x.Hsn.Contains(search));
+                var codeVisible=Visible("Code");var nameVisible=Visible("Name");var shortNameVisible=Visible("ShortName");
+                var skuVisible=Visible("Sku");var barcodeVisible=Visible("Barcode");var legacyHsnVisible=Visible("Hsn");
+                var linkedHsnVisible=Visible("TaxClassification");
+                products=products.Where(x=>codeVisible && x.Code.Contains(search) || matchNames&&(nameVisible && x.NormalizedName.Contains(search) ||
+                    shortNameVisible && x.ShortName!=null && x.ShortName.ToUpper().Contains(search)) ||
+                    matchIds&&(skuVisible && x.Sku!=null && x.Sku.ToUpper().Contains(search) ||
+                    barcodeVisible && x.Barcode!=null && x.Barcode.ToUpper().Contains(search)) ||
+                    matchHsn && (legacyHsnVisible && x.Hsn!=null && x.Hsn.Contains(search) ||
+                    linkedHsnVisible && taxProfiles.Any(p=>p.ProductId==x.Id &&
+                        classifications.Any(c=>c.Id==p.ClassificationId && c.Code.Contains(search)))));
             }
             var rows = await products.OrderBy(x => x.Code).Skip(skip).Take(pageSize + 1)
                 .Select(x => new CatalogRow(x.Id, x.Version, x.Code, x.Name, x.Active,
@@ -204,9 +215,12 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
         return new(CompanyOutcome.Success, company);
     }
 
+    private static bool UsesBase(string? unit,string baseUnit)=>string.IsNullOrWhiteSpace(unit) ||
+        CatalogRules.Normalize(unit)==CatalogRules.Normalize(baseUnit);
+
     internal static async Task<CatalogResult> ProductAsync(BillingDbContext db, CatalogRequest request, Guid company, Guid actor,
         IQueryable<ProductCategory> categories, IQueryable<Product> products, byte[]? image,
-        bool canChangeStatus,bool canEditPricing,CancellationToken ct)
+        bool canChangeStatus,bool canEditPricing,CancellationToken ct,bool allowUnlinkedTax=false)
     {
         // Load the bounded image payload only for a single master detail.
         var product = request.Id is Guid id ? await products.SingleOrDefaultAsync(x => x.Id == id, ct) : null;
@@ -310,7 +324,9 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
             if (request.TaxDate is DateOnly date)
             {
                 var resolved=await new CompanyTaxCatalog(db,company).ResolveProductAsync(product,date,ct);
-                if(resolved.Outcome!=CompanyOutcome.Success)
+                if(resolved.Outcome!=CompanyOutcome.Success &&
+                    !(allowUnlinkedTax && resolved.Outcome==CompanyOutcome.InvalidInput &&
+                        !await db.Set<ProductTaxProfile>().AnyAsync(x=>x.CompanyId==company && x.ProductId==product.Id,ct)))
                 {
                     var error=resolved.Message??"Choose an applicable HSN/SAC and GST profile.";
                     return new(resolved.Outcome,Message:error,Errors:new Dictionary<string,string>{{"TaxAssignment",error}});
@@ -328,6 +344,60 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
         if (request.Action == CatalogAction.Status && !isNew) product!.Active = request.Active!.Value;
         else if (request.Action == CatalogAction.Save && request.ProductDraft is { } input)
         {
+            var settings=await SettingsStore.ReadCompanyAsync(db,company,ct);
+            var legacy=ProductFormConfiguration.IsLegacy(settings);
+            input=input with {};
+            var defaults=new ProductDraft();
+            foreach(var property in typeof(ProductDraft).GetProperties().Where(item=>item.Name is not ("Code" or "CategoryId")))
+                if(!ProductFormConfiguration.EditorFieldVisible(settings,property.Name))
+                    property.SetValue(input,product is null?property.GetValue(defaults):typeof(Product).GetProperty(property.Name)?.GetValue(product));
+            if(!ProductFormConfiguration.EditorFieldVisible(settings,"CategoryId"))
+            {
+                var categoryCode=settings.Get(ProductFormConfiguration.DefaultCategory);
+                var categoryId=product?.CategoryId??await categories.Where(x=>x.Active && x.Code==categoryCode)
+                    .Select(x=>(Guid?)x.Id).SingleOrDefaultAsync(ct);
+                if(categoryId is Guid configuredCategory) input=input with {CategoryId=configuredCategory};
+                else if(input.CategoryId==Guid.Empty)
+                    return Invalid("CategoryId","Choose an active category or configure a default in Product / Item Master settings.");
+            }
+            Guid? selectedBaseUnitId=null;
+            if(legacy && (isNew || !string.Equals(input.BaseUnit.Trim(),product?.BaseUnit,StringComparison.Ordinal)))
+            {
+                var unit=CatalogRules.Normalize(input.BaseUnit);
+                var activeUnit=await db.Set<UnitOfMeasure>().Where(x=>x.CompanyId==company && x.Active &&
+                    (x.Code==unit || x.NormalizedName==unit)).ToArrayAsync(ct);
+                if(activeUnit.Length!=1) return Invalid("BaseUnit","Choose an unambiguous active company unit.");
+                selectedBaseUnitId=activeUnit[0].Id;
+                input=input with {BaseUnit=activeUnit[0].Code};
+                if(product is not null && !UsesBase(product.BaseUnit,input.BaseUnit) &&
+                    (product.SalesFactor!=1 || product.PurchaseFactor!=1 ||
+                     !UsesBase(product.SalesUnit,product.BaseUnit) || !UsesBase(product.PurchaseUnit,product.BaseUnit)))
+                    return Invalid("BaseUnit","Use Edit units and brand to update a product with separate unit conversions.");
+                if(isNew) input=input with {Code=await NextItemCodeAsync(products,ct)??""};
+                if(isNew && !ProductFormConfiguration.EditorFieldVisible(settings,"SalesUnit") ||
+                    product is not null && product.SalesFactor==1 && input.SalesFactor==1 &&
+                    UsesBase(product.SalesUnit,product.BaseUnit) && UsesBase(input.SalesUnit,product.BaseUnit))
+                    input=input with {SalesUnit=null,SalesFactor=1};
+                if(product is not null && product.PurchaseFactor==1 && input.PurchaseFactor==1 &&
+                    UsesBase(product.PurchaseUnit,product.BaseUnit) && UsesBase(input.PurchaseUnit,product.BaseUnit))
+                    input=input with {PurchaseUnit=null,PurchaseFactor=1};
+            }
+            var validation=new Dictionary<string,string>();
+            CatalogRules.ValidateProduct(input,validation);
+            if(validation.Count>0) return new(CompanyOutcome.InvalidInput,Errors:validation);
+            foreach(var (field,value,previous) in new[]{("SalesRate",input.SalesRate,product?.SalesRate),("Mrp",input.Mrp,product?.Mrp)})
+            {
+                var mode=ProductFormConfiguration.Mode(settings,field);
+                if(mode=="Required" && value is null) return Invalid(field,"Enter a value required by Product Master configuration.");
+                if(mode=="Read-only" && value!=previous) return Invalid(field,"This price is read-only in Product Master.");
+            }
+            var taxSelection=request.TaxSelection;
+            if(taxSelection is not null && new[]{"TaxClassification","TaxContext"}.Any(field=>
+                !ProductFormConfiguration.EditorFieldVisible(settings,field) || ProductFormConfiguration.Mode(settings,field)=="Read-only"))
+                return Invalid("TaxSelection","The tax selection is locked by Product Master configuration.");
+            if(taxSelection is null && new[]{"TaxClassification","TaxContext"}.Any(field=>ProductFormConfiguration.Mode(settings,field)=="Required") &&
+                (product is null || !await db.Set<ProductTaxProfile>().AnyAsync(profile=>profile.CompanyId==company && profile.ProductId==product.Id,ct)))
+                return Invalid("TaxSelection","Link an HSN/SAC classification and GST rate context required by Product Master configuration.");
             if (!canChangeStatus && input.Active!=(product?.Active ?? true)) return new(CompanyOutcome.Forbidden);
             if (!canEditPricing && (input.PurchaseRate!=product?.PurchaseRate || input.SalesRate!=product?.SalesRate ||
                 input.Mrp!=product?.Mrp || input.PricingDate!=product?.PricingDate ||
@@ -373,7 +443,31 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
                     (input.BaseUnit.Trim()!=product.BaseUnit || CatalogRules.Optional(input.SalesUnit)!=product.SalesUnit ||
                      CatalogRules.Optional(input.PurchaseUnit)!=product.PurchaseUnit || input.SalesFactor!=product.SalesFactor ||
                      input.PurchaseFactor!=product.PurchaseFactor || input.QuantityPrecision!=product.QuantityPrecision))
-                    return Invalid("BaseUnit", "Change linked units through Edit units and brand. The original units and factors are retained.");
+                {
+                    if(selectedBaseUnitId is not Guid newBase || input.SalesFactor!=1 || input.PurchaseFactor!=1 ||
+                        !UsesBase(input.SalesUnit,input.BaseUnit) || !UsesBase(input.PurchaseUnit,input.BaseUnit) ||
+                        await db.Set<ProductUnitConversion>().AnyAsync(x=>x.CompanyId==company && x.ProductId==product.Id &&
+                            x.Active && x.UnitId!=measureProfile.BaseUnitId,ct))
+                        return Invalid("BaseUnit","Use Edit units and brand to update a product with separate unit conversions.");
+                    var conversions=await db.Set<ProductUnitConversion>().Where(x=>x.CompanyId==company &&
+                        x.ProductId==product.Id && (x.UnitId==measureProfile.BaseUnitId || x.UnitId==newBase)).ToArrayAsync(ct);
+                    var previous=conversions.SingleOrDefault(x=>x.UnitId==measureProfile.BaseUnitId);
+                    var next=conversions.SingleOrDefault(x=>x.UnitId==newBase);
+                    if(previous is not null && previous!=next)
+                    {
+                        previous.Active=previous.DefaultSales=previous.DefaultPurchase=false;
+                        await db.SaveChangesAsync(ct);
+                    }
+                    if(next is null)
+                    {
+                        next=new ProductUnitConversion {CompanyId=company,ProductId=product.Id,UnitId=newBase};
+                        db.Add(next);
+                    }
+                    next.Active=true;
+                    next.FactorToBaseUnit=1;
+                    next.DefaultSales=next.DefaultPurchase=true;
+                    measureProfile.BaseUnitId=newBase;
+                }
             }
             product.CategoryId=input.CategoryId;
             product.NormalizedName=name;
@@ -413,7 +507,7 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
             product.Specifications=CatalogRules.Optional(input.Specifications);
             product.Warranty=CatalogRules.Optional(input.Warranty);
             product.Remarks=CatalogRules.Optional(input.Remarks);
-            if (image is not null || request.RemoveImage) product.Image=image;
+            if (ProductFormConfiguration.EditorFieldVisible(settings,"Image") && (image is not null || request.RemoveImage)) product.Image=image;
             if (isNew) db.Add(product);
             if(request.TaxSelection is { } requestedTax)
             {
@@ -426,6 +520,17 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
         product.UpdatedByUserId=actor;
         Audit(db, company, actor, product.Id, "Product", isNew ? "Created" : request.Action == CatalogAction.Status ? "StatusChanged" : "Updated");
         return new(CompanyOutcome.Success, company);
+    }
+
+    private static async Task<string?> NextItemCodeAsync(IQueryable<Product> products,CancellationToken ct)
+    {
+        long highest=0;
+        await foreach(var code in products.Where(item=>item.Code.StartsWith("ITM-")).Select(item=>item.Code)
+            .AsAsyncEnumerable().WithCancellation(ct))
+            if(long.TryParse(code.AsSpan(4),System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture,out var sequence))
+                highest=Math.Max(highest,sequence);
+        return highest==long.MaxValue?null:"ITM-"+(highest+1).ToString("D4",System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private static async Task<(string Created,string Updated)> Actors(BillingDbContext db, Guid created, Guid updated, CancellationToken ct)

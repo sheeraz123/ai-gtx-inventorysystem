@@ -11,6 +11,10 @@ public partial class CustomerView : UserControl
         InitializeComponent();
         DataContextChanged+=(_,e)=>
         {
+            if(e.OldValue is CustomerViewModel oldModel) oldModel.ConfirmShippingReplacement=null;
+            if(e.NewValue is CustomerViewModel newModel) newModel.ConfirmShippingReplacement=()=>
+                MessageBox.Show(Window.GetWindow(this),"Replace the selected shipping address with a copy of the billing address?",
+                    "Copy billing address",MessageBoxButton.YesNo,MessageBoxImage.Question,MessageBoxResult.No)==MessageBoxResult.Yes;
             if(e.OldValue is CustomerViewModel previous) previous.ConfirmDuplicates=null;
             if(e.NewValue is CustomerViewModel current) current.ConfirmDuplicates=warnings=>MessageBox.Show(
                 "Similar customers already exist in this company:\n\n"+

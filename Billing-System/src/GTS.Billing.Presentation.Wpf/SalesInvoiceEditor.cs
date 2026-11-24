@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using GTS.Billing.Application;
 using GTS.Billing.Domain;
 
@@ -13,6 +14,20 @@ internal static class SalesInvoiceEditor
     private static Guid? Id(ComboBox selector)=>(selector.SelectedItem as SalesChoice)?.Id;
     private static string Decimal(decimal value)=>value.ToString("G29",CultureInfo.CurrentCulture);
 
+    internal static void StyleCard(Border card)
+    {
+        if(card.Child is not StackPanel body || body.Children[0] is not TextBlock title) return;
+        body.Children.RemoveAt(0);
+        title.Margin=new Thickness(0);
+        var heading=new Border {Child=title,Padding=new Thickness(10,6,10,6),
+            Margin=new Thickness(0,0,0,10),CornerRadius=new CornerRadius(4)};
+        heading.SetResourceReference(Border.BackgroundProperty,SystemParameters.HighContrast
+            ?SystemColors.ControlBrushKey:"Palette.InvoiceHeading");
+        if(SystemParameters.HighContrast)
+            title.SetResourceReference(TextBlock.ForegroundProperty,SystemColors.ControlTextBrushKey);
+        body.Children.Insert(0,heading);
+    }
+
     internal static void Configure(MeasureEditorDialog dialog,SalesResult data,SalesOptions options,string companyName,
         Func<SalesAction,SalesDraft,IReadOnlyList<SalesProductCompletion>,CancellationToken,Task<SalesResult>> send,
         Action<SalesRow>? finalize,Func<Guid,CancellationToken,Task<SalesResult>> loadAddresses,
@@ -21,16 +36,39 @@ internal static class SalesInvoiceEditor
         var draft=data.Draft!;
         var form=options.Form??SalesFormConfiguration.Empty;
         void Apply(string key,Control control)=>dialog.ConfigureField(control,form.Field(key),form.Rules.ContainsKey(key));
-        void Card(string key,FrameworkElement body)=>dialog.AddConfiguredCard(form.Field(key),body);
+        FrameworkElement Card(string key,FrameworkElement body)
+        {
+            var card=(Border)dialog.AddConfiguredCard(form.Field(key),body);
+            StyleCard(card);
+            return card;
+        }
+        if(!SystemParameters.HighContrast)
+            dialog.SetResourceReference(Window.BackgroundProperty,"Palette.Canvas");
+        var entryLayout=options.EntryLayout=="Company default" && options.GraftexEntry?"Compact Full-Width":options.EntryLayout;
+        var entry=draft.EntryDetails??new SalesEntryDetails();
         var newInvoice=data.Row is null;
         string? Initial(string key,string? original)=>newInvoice && form.Field(key).Default.Length>0?form.Field(key).Default:original;
         dialog.Width=Math.Min(1450,SystemParameters.WorkArea.Width);
         dialog.Height=Math.Min(880,SystemParameters.WorkArea.Height);
         var header=new WrapPanel();
-        Card("InvoiceDetails",header);
+        var headerCard=Card("InvoiceDetails",header);
         var companyInput=dialog.Text("Company",companyName,150,true,panel:header); companyInput.Width=210; Apply("Company",companyInput);
         var statusInput=dialog.Text("Invoice type / status","Tax Invoice — Draft",60,true,panel:header); statusInput.Width=150; Apply("InvoiceNumber",statusInput);
         var date=dialog.Date(Label("Date","Invoice date")+" *",draft.Date,panel:header);
+        var saleTypes=new[]{"Local Sale","Inter-State Sale"};
+        var savedIntent=entry.Intent??(draft.Jurisdiction switch
+        {
+            GstJurisdiction.IntraState=>SalesIntent.Local,GstJurisdiction.Interstate=>SalesIntent.Interstate,_=>(SalesIntent?)null
+        });
+        var saleType=dialog.Choice<string>("Sale type *",saleTypes,savedIntent switch
+        {
+            SalesIntent.Local=>saleTypes[0],SalesIntent.Interstate=>saleTypes[1],_=>null
+        },panel:header);
+        Apply("SaleIntent",saleType);
+        SalesIntent? CurrentSaleType()=>saleType.SelectedIndex switch {0=>SalesIntent.Local,1=>SalesIntent.Interstate,_=>null};
+        var payment=dialog.Choice("Payment mode",new[]{"","Cash","Credit"},entry.PaymentMode,panel:header);
+        Apply("PaymentMode",payment);
+        if(!options.GraftexEntry && !form.Rules.ContainsKey("PaymentMode")) dialog.ShowConfiguredField(payment,false);
         var isNew=data.Row is null;
         bool MatchesDate(SalesChoice value)=>Date(date) is { } day && SalesOptions.IncludesDate(value,day);
         var availableYears=options.Years.Where(x=>x.Active || x.Id==draft.YearId).ToArray();
@@ -38,6 +76,18 @@ internal static class SalesInvoiceEditor
         var registration=Choice("Supplier GST registration *",options.Registrations.Where(x=>x.Active || x.Id==draft.RegistrationId),
             draft.RegistrationId??(isNew?options.DefaultRegistration()?.Id:null),header);
         var series=Choice("Document series *",[],null,header);
+        var nextNumber=dialog.Text("Bill no. (preview)","",100,true,panel:header);
+        nextNumber.FontWeight=FontWeights.Bold;
+        nextNumber.MinWidth=135;
+        if(!SystemParameters.HighContrast)
+        {
+            nextNumber.SetResourceReference(Control.BackgroundProperty,"Palette.InvoiceHeading");
+            nextNumber.SetResourceReference(Control.BorderBrushProperty,"Palette.InvoiceAccent");
+        }
+        Apply("NextNumber",nextNumber);
+        if(!options.GraftexEntry && !form.Rules.ContainsKey("NextNumber")) dialog.ShowConfiguredField(nextNumber,false);
+        void RefreshNumber()=>nextNumber.Text=year.SelectedItem is SalesChoice selected && MatchesDate(selected) &&
+            series.SelectedItem is SalesChoice {Active:true,NextNumberPreview:{ } number}?number:"";
         void ReloadSeries(Guid? preserve=null)
         {
             var current=preserve??Id(series);
@@ -49,6 +99,7 @@ internal static class SalesInvoiceEditor
                 series.SelectedItem is null?"Choose a document series. No unique default is configured.":null);
             dialog.SetFieldWarning(year,year.SelectedItem is SalesChoice choice && MatchesDate(choice)?null:
                 availableYears.Any(MatchesDate)?"Select an open year that includes the invoice date.":"No open financial year includes the invoice date.");
+            RefreshNumber();
         }
         Apply("Date",date);Apply("YearId",year);Apply("RegistrationId",registration);Apply("SeriesId",series);
         MeasureEditorDialog.OrderConfigured(header);
@@ -58,56 +109,21 @@ internal static class SalesInvoiceEditor
         series.SelectionChanged+=(_,_)=>
         {
             if(series.SelectedItem is not null) dialog.SetFieldWarning(series,null);
+            RefreshNumber();
         };
         date.SelectedDateChanged+=(_,_)=>ReloadSeries();
         var customerPanel=new WrapPanel();
-        Card("CustomerDetails",customerPanel);
+        var customerCard=Card("CustomerDetails",customerPanel);
         var customer=Choice("Customer *",options.Customers,draft.CustomerId,customerPanel);
         Apply("CustomerId",customer);
         var po=dialog.Text(form.Field("PurchaseOrder").Label,Initial("PurchaseOrder",draft.PurchaseOrder),100,panel:customerPanel);
         Apply("PurchaseOrder",po);
-        MeasureEditorDialog.OrderConfigured(customerPanel);
+        void UpdatePurchaseOrderVisibility()=>dialog.ShowConfiguredField(po,form.Field("PurchaseOrder").Visible ||
+            customer.SelectedItem is SalesChoice {PurchaseOrderRequired:true});
+        customer.SelectionChanged+=(_,_)=>UpdatePurchaseOrderVisibility();
+        UpdatePurchaseOrderVisibility();
         var addresses=new SalesInvoiceAddressCards(dialog,customer,draft.BillingAddressId,draft.ShippingAddressId,
             loadAddresses,saveAddress,canEditAddress,form);
-        var taxFields=new WrapPanel();
-        var taxSection=form.Field("TaxDetails");
-        var reviewFields=new WrapPanel();
-        dialog.AddConfiguredCard(taxSection,taxFields);
-        WrapPanel TaxPanel(string key)=>taxSection.Visible && form.Field(key).Visible?taxFields:reviewFields;
-        var places=CompanyRules.States.Select(x=>new Place(x.Key,x.Key+" — "+x.Value)).OrderBy(x=>x.Label).ToArray();
-        var place=dialog.Choice("Reviewed place of supply",places,places.FirstOrDefault(x=>x.Code==draft.PlaceOfSupply),
-            nameof(Place.Label),panel:TaxPanel("PlaceOfSupply"),searchable:true);
-        var jurisdiction=dialog.Choice("GST jurisdiction",new[]{GstJurisdiction.Unresolved,GstJurisdiction.IntraState,
-            GstJurisdiction.IntraUnionTerritory,GstJurisdiction.Interstate},draft.Jurisdiction,panel:TaxPanel("Jurisdiction"));
-        var confirm=dialog.Choice("Standard domestic supply reviewed",new[]{"No","Yes"},draft.DomesticConfirmed?"Yes":"No",
-            panel:TaxPanel("DomesticConfirmed"));
-        void ApplyTax(string key,Control field)=>dialog.ConfigureField(field,form.Field(key) with {Visible=true},
-            form.Rules.ContainsKey(key));
-        ApplyTax("PlaceOfSupply",place);ApplyTax("Jurisdiction",jurisdiction);ApplyTax("DomesticConfirmed",confirm);
-        var reviewGstButton=reviewFields.Children.Count>0?dialog.FooterButton("Review GST details"):null;
-        void ReviewGst(object sender,RoutedEventArgs e)
-        {
-            var original=(place.SelectedItem,jurisdiction.SelectedItem,confirm.SelectedItem);
-            var review=new Window {Owner=dialog,Title="Review GST details",Width=Math.Min(700,SystemParameters.WorkArea.Width),
-                SizeToContent=SizeToContent.Height,WindowStartupLocation=WindowStartupLocation.CenterOwner};
-            review.SetResourceReference(Window.BackgroundProperty,"Palette.Surface");
-            review.SetResourceReference(Window.ForegroundProperty,"Palette.Text");
-            var layout=new DockPanel {Margin=new Thickness(16)};
-            var done=new Button {Content="Done",IsCancel=true,HorizontalAlignment=HorizontalAlignment.Right};
-            DockPanel.SetDock(done,Dock.Bottom);
-            layout.Children.Add(done);
-            layout.Children.Add(reviewFields);
-            review.Content=layout;
-            try {review.ShowDialog();}
-            finally
-            {
-                layout.Children.Remove(reviewFields);
-                if(original!=(place.SelectedItem,jurisdiction.SelectedItem,confirm.SelectedItem)) dialog.MarkChanged();
-                Queue();
-            }
-        }
-        MeasureEditorDialog.OrderConfigured(taxFields);
-        MeasureEditorDialog.OrderConfigured(reviewFields);
         var notesFields=new WrapPanel();
         var rows=new StackPanel();
         var editors=new List<LineControls>();
@@ -123,16 +139,23 @@ internal static class SalesInvoiceEditor
         var summaryCard=new Border {Child=summaryContent,CornerRadius=new CornerRadius(7),BorderThickness=new Thickness(1),
             Margin=new Thickness(16,4,16,4)};
         summaryCard.SetResourceReference(Border.BorderBrushProperty,"Palette.GridLine");
+        if(!SystemParameters.HighContrast)
+        {
+            summaryCard.SetResourceReference(Border.BackgroundProperty,"Palette.InvoiceAccent");
+            TextElement.SetForeground(summaryContent,System.Windows.Media.Brushes.White);
+        }
         dialog.DockSummary(summaryCard);
         var lineArea=new StackPanel();
         var lineButtons=new WrapPanel();
         var add=new Button {Content="Add product",Margin=new Thickness(0,7,8,7),Padding=new Thickness(10,4,10,4)};
+        BillingIcon.Set(add,"Add product","\uE710");
         dialog.AddField("",add,lineButtons);
         lineArea.Children.Add(lineButtons);
-        lineArea.Children.Add(new ScrollViewer {Content=rows,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled,
+        lineArea.Children.Add(new ScrollViewer {Content=rows,HorizontalScrollBarVisibility=options.GraftexEntry?ScrollBarVisibility.Auto:ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility=ScrollBarVisibility.Auto,MaxHeight=430});
-        Card("Products",lineArea);
-        Card("AdditionalDetails",notesFields);
+        var productCard=Card("Products",lineArea);
+        Card("AdditionalDetails",entryLayout=="Modern Compact Billing"?
+            new Expander {Header="Order and transport",Content=notesFields}:notesFields);
         TextBox Detail(string key,string? value,int max)
         {
             var field=dialog.Text(form.Field(key).Label,Initial(key,value),max,panel:notesFields);
@@ -152,24 +175,43 @@ internal static class SalesInvoiceEditor
         var vehicle=Detail("Vehicle",transport?.Vehicle,120);
         var weight=Detail("Weight",transport?.Weight,120);
         var carrier=Detail("Carrier",transport?.Carrier,120);
-        var orderThrough=Detail("OrderThrough",transport?.OrderThrough,120);
+        var orderThrough=dialog.Text(form.Field("OrderThrough").Label,Initial("OrderThrough",transport?.OrderThrough),120,
+            panel:options.GraftexEntry?customerPanel:notesFields);
+        Apply("OrderThrough",orderThrough);
+        MeasureEditorDialog.OrderConfigured(customerPanel);
         var privateMark=Detail("PrivateMark",transport?.PrivateMark,120);
         var document=Detail("Document",transport?.Document,120);
-        var preparedBy=dialog.Text("Prepared by",options.PreparedBy,120,locked:true,panel:notesFields);
+        TextBox OptionalLegacy(string key,string? value)
+        {
+            var control=Detail(key,value,120);
+            if(!options.GraftexEntry && !form.Rules.ContainsKey(key)) dialog.ShowConfiguredField(control,false);
+            return control;
+        }
+        var distance=OptionalLegacy("Distance",transport?.Distance);
+        var transportId=OptionalLegacy("TransportId",transport?.TransportId);
+        var tcs=OptionalLegacy("Tcs",entry.Tcs);
+        var reversal=OptionalLegacy("Reversal",entry.Reversal);
+        var ern=OptionalLegacy("Ern",entry.Ern);
+        var preparedBy=dialog.Text("Prepared by",options.PreparedBy,120,locked:true,panel:options.GraftexEntry?header:notesFields);
         Apply("PreparedBy",preparedBy);
         MeasureEditorDialog.OrderConfigured(notesFields);
         dialog.OrderConfiguredSections();
+        dialog.ApplyInvoiceEntryLayout(entryLayout,headerCard,productCard,options.GraftexEntry?customerCard:null,addresses.Section);
         void Add(SalesLineInput? value,int index)
         {
-            var box=new WrapPanel {Margin=new Thickness(0,4,0,4)};
-            var lineCard=new Border {Child=box,BorderThickness=new Thickness(0,index==0?0:1,0,0)};
+            Panel box=options.GraftexEntry?new StackPanel {Orientation=Orientation.Horizontal}:new WrapPanel();
+            box.Margin=new Thickness(0,4,0,4);
+            var requiredOptions=new WrapPanel();
+            var lineCard=new Border {Child=options.GraftexEntry?
+                new StackPanel {Children={box,requiredOptions}}:box,BorderThickness=new Thickness(0,index==0?0:1,0,0)};
             lineCard.SetResourceReference(Border.BorderBrushProperty,"Palette.GridLine");
             rows.Children.Add(lineCard);
             var number=new TextBlock {Text=(index+1).ToString(CultureInfo.CurrentCulture),Width=26,VerticalAlignment=VerticalAlignment.Center};
             box.Children.Add(number);
             var product=Choice("Product search",options.Products,value?.ProductId,box);
             product.Width=230;
-            var variant=dialog.Choice<SalesVariantChoice>("Variant",[],null,nameof(SalesVariantChoice.Label),box,searchable:true);
+            var variant=dialog.Choice<SalesVariantChoice>("Variant",[],null,nameof(SalesVariantChoice.Label),
+                options.GraftexEntry?requiredOptions:box,searchable:true);
             variant.Width=190;
             void LoadVariants(Guid? keep=null,bool allowDefault=true)
             {
@@ -229,13 +271,18 @@ internal static class SalesInvoiceEditor
             var taxAmount=Display("GST amount",95);
             var gst=Display("GST %",85);
             var mapping=dialog.Choice<SalesTaxChoice>("HSN/SAC and GST mapping",[],null,nameof(SalesTaxChoice.Label),
-                box,searchable:true);
+                options.GraftexEntry?requiredOptions:box,searchable:true);
             mapping.Width=210;
             var total=Display("Line total",95);
+            var sgstPercent=Display("SGST %",66);
+            var sgstAmount=Display("SGST amount",92);
+            var cgstPercent=Display("CGST %",66);
+            var cgstAmount=Display("CGST amount",92);
+            var igstPercent=Display("IGST %",66);
+            var igstAmount=Display("IGST amount",92);
             var item=new LineControls(product,unit,quantity,price,percent,fixedDiscount,inclusive,hsn,taxable,gst,total,number,mrp,mapping,
-                gross,appliedDiscount,taxAmount,variant);
+                gross,appliedDiscount,taxAmount,variant,sgstPercent,sgstAmount,cgstPercent,cgstAmount,igstPercent,igstAmount);
             editors.Add(item);
-            FillTax(false);
             void ShowMrpWarning()
             {
                 var missing=product.SelectedItem is SalesChoice {Mrp:null} &&
@@ -256,25 +303,39 @@ internal static class SalesInvoiceEditor
                     (selected?.GstRate is null || selected.GstRate==x.Rate)).ToArray();
                 var linked=selected?.TaxClassificationId is Guid classification
                     ?choices.Where(x=>x.ClassificationId==classification && x.Context==selected.TaxContext).Take(2).ToArray():[];
+                var byHsn=selected?.TaxClassificationId is null && !string.IsNullOrWhiteSpace(selected?.Hsn)
+                    ?choices.Where(x=>x.Selectable && x.Code==selected.Hsn.Trim()).Take(2).ToArray():[];
                 var canSelect=selected is not null && options.CanLinkTax && selected.TaxClassificationId is null;
-                mapping.IsEnabled=canSelect && candidates.Length>0;
-                mapping.Visibility=canSelect?Visibility.Visible:Visibility.Collapsed;
+                mapping.IsEnabled=canSelect && byHsn.Length!=1 && candidates.Length>0;
+                dialog.ShowConfiguredField(mapping,canSelect && byHsn.Length!=1 && form.Field("TaxAssignment").Visible);
                 SearchableComboBox.SetSource(mapping,candidates);
-                mapping.SelectedItem=candidates.FirstOrDefault(x=>x.AssignmentId==previous);
+                mapping.SelectedItem=mapping.IsEnabled?candidates.FirstOrDefault(x=>x.AssignmentId==previous):null;
                 SetTaxFields();
                 void SetTaxFields()
                 {
-                    var chosen=mapping.SelectedItem as SalesTaxChoice??(linked.Length==1?linked[0]:null);
-                    hsn.Text=chosen?.Code??selected?.Hsn??"";
-                    gst.Text=chosen is not null?Decimal(chosen.Rate):selected?.GstRate is decimal legacy?Decimal(legacy):"";
+                    var chosen=mapping.SelectedItem as SalesTaxChoice??(linked.Length==1?linked[0]:byHsn.Length==1?byHsn[0]:null);
+                    var manual=canSelect && chosen is null && byHsn.Length==0 && selected!.ProductKind=="Goods";
+                    var keepManual=manual && keepSelection && !gst.IsReadOnly;
+                    hsn.IsReadOnly=!manual || !string.IsNullOrWhiteSpace(selected?.Hsn);
+                    gst.IsReadOnly=!manual;
+                    hsn.IsTabStop=!hsn.IsReadOnly;
+                    gst.IsTabStop=manual;
+                    hsn.MaxLength=8;
+                    dialog.ShowConfiguredField(hsn,manual || form.Field("Hsn").Visible);
+                    dialog.ShowConfiguredField(gst,manual || form.Field("Gst").Visible);
+                    if(!keepManual || hsn.IsReadOnly)
+                        hsn.Text=chosen?.Code??selected?.Hsn??(keepSelection?value?.ManualHsn:null)??"";
+                    if(!keepManual)
+                        gst.Text=chosen is not null?Decimal(chosen.Rate):
+                            (keepSelection?value?.ManualGstRate??selected?.GstRate:selected?.GstRate) is decimal fallback?Decimal(fallback):"";
                     var needsTax=selected is not null && chosen is null;
-                    dialog.SetFieldWarning(canSelect?mapping:gst,!needsTax?null:selected!.TaxClassificationId.HasValue
+                    dialog.SetFieldWarning(canSelect?mapping:gst,!needsTax || manual?null:selected!.TaxClassificationId.HasValue
                         ?"The saved tax profile has no unique rate for this date."
                         :!options.CanLinkTax?"GST profile is missing. Product tax assignment permission is required."
                         :candidates.Length==0?"No matching approved HSN/SAC and GST mapping for this date."
                         :"Choose an approved HSN/SAC and GST mapping to link on Save.");
                     if(!canSelect) dialog.SetFieldWarning(mapping,null);
-                    else dialog.SetFieldWarning(gst,needsTax && selected!.GstRate is null?"GST rate is missing.":null);
+                    else dialog.SetFieldWarning(gst,manual?"Enter the GST rate for this invoice only.":null);
                     dialog.SetFieldWarning(hsn,needsTax && string.IsNullOrWhiteSpace(selected!.Hsn)?"HSN/SAC is missing.":null);
                 }
             }
@@ -282,6 +343,9 @@ internal static class SalesInvoiceEditor
             mapping.SelectionChanged+=(_,_) =>
             {
                 if(mapping.SelectedItem is not SalesTaxChoice selected) return;
+                hsn.IsReadOnly=gst.IsReadOnly=true;
+                hsn.IsTabStop=gst.IsTabStop=false;
+                dialog.ShowConfiguredField(gst,form.Field("Gst").Visible);
                 hsn.Text=selected.Code;
                 gst.Text=Decimal(selected.Rate);
                 dialog.SetFieldWarning(mapping,null);
@@ -316,6 +380,18 @@ internal static class SalesInvoiceEditor
             Apply("Quantity",quantity);Apply("Price",price);Apply("DiscountPercent",percent);Apply("DiscountAmount",fixedDiscount);
             Apply("Inclusive",inclusive);Apply("TaxAssignment",mapping);Apply("Taxable",taxable);Apply("Gross",gross);
             Apply("AppliedDiscount",appliedDiscount);Apply("Gst",gst);Apply("TaxAmount",taxAmount);Apply("Total",total);
+            TaxComponent("Sgst",sgstPercent,sgstAmount,CurrentSaleType()==SalesIntent.Local);
+            TaxComponent("Cgst",cgstPercent,cgstAmount,CurrentSaleType()==SalesIntent.Local);
+            TaxComponent("Igst",igstPercent,igstAmount,CurrentSaleType()==SalesIntent.Interstate);
+            void TaxComponent(string component,TextBox percentage,TextBox amount,bool applicable)
+            {
+                var percentKey="Line"+component+"Percent";
+                var amountKey="Line"+component+"Amount";
+                Apply(percentKey,percentage);Apply(amountKey,amount);
+                dialog.ShowConfiguredField(percentage,options.GraftexEntry && applicable && form.Field(percentKey).Visible);
+                dialog.ShowConfiguredField(amount,options.GraftexEntry && applicable && form.Field(amountKey).Visible);
+            }
+            FillTax(true);
             if(variant.Items.Count==0 && variant.Parent is Border frame && frame.Parent is FrameworkElement field)
                 field.Visibility=Visibility.Collapsed;
             MeasureEditorDialog.OrderConfigured(box);
@@ -325,14 +401,14 @@ internal static class SalesInvoiceEditor
         }
 
         var recalculate=dialog.FooterButton("Preview invoice");
+        BillingIcon.Set(recalculate,"Preview invoice","\uE890");
         dialog.Closed+=(_,_)=>{closed=true;preview.Cancel();};
         var headerFields=new Dictionary<string,Control>
         {
             [nameof(SalesDraft.Date)]=date,[nameof(SalesDraft.YearId)]=year,[nameof(SalesDraft.SeriesId)]=series,
             [nameof(SalesDraft.RegistrationId)]=registration,[nameof(SalesDraft.CustomerId)]=customer,
+            ["SaleIntent"]=saleType,
             [nameof(SalesDraft.BillingAddressId)]=addresses.BillingField,[nameof(SalesDraft.ShippingAddressId)]=addresses.ShippingField,
-            [nameof(SalesDraft.PlaceOfSupply)]=place,[nameof(SalesDraft.Jurisdiction)]=jurisdiction,
-            [nameof(SalesDraft.DomesticConfirmed)]=confirm,
             [nameof(SalesDraft.Lines)]=add,["PurchaseOrder"]=po,["Reference"]=reference,["Terms"]=terms,["Notes"]=notes,
             ["InternalRemarks"]=internalRemarks,["GoodsReceipt"]=goodsReceipt,["Vehicle"]=vehicle,["Weight"]=weight,
             ["Carrier"]=carrier,["OrderThrough"]=orderThrough,["PrivateMark"]=privateMark,["Document"]=document,["PreparedBy"]=preparedBy
@@ -358,6 +434,8 @@ internal static class SalesInvoiceEditor
                 nameof(SalesLineInput.Price)=>line.Price,
                 nameof(Product.Mrp)=>line.Mrp,
                 "TaxAssignment"=>line.Mapping.IsVisible && line.Mapping.IsEnabled?line.Mapping:line.Product,
+                nameof(SalesLineInput.ManualHsn)=>line.Hsn,
+                nameof(SalesLineInput.ManualGstRate)=>line.Gst,
                 nameof(SalesLineInput.DiscountPercent)=>line.Percent,
                 nameof(SalesLineInput.DiscountAmount)=>line.Discount,
                 _=>null
@@ -391,13 +469,11 @@ internal static class SalesInvoiceEditor
                 if(!valid) issues.Add(new(field,message,line));
             }
             var day=Date(date);
-            var scope=jurisdiction.SelectedItem is GstJurisdiction selectedScope?selectedScope:GstJurisdiction.Unresolved;
-            var selectedPlace=(place.SelectedItem as Place)?.Code??"";
-            var domestic=confirm.SelectedItem as string=="Yes";
             Required(day.HasValue,nameof(SalesDraft.Date),"Enter a valid invoice date.");
             if(saving) Required(year.SelectedItem is SalesChoice selectedYear && MatchesDate(selectedYear),
                 nameof(SalesDraft.YearId),"Select an open financial year that includes the invoice date.");
             Required(Id(registration).HasValue,nameof(SalesDraft.RegistrationId),"Select the supplier GST registration.");
+            Required(CurrentSaleType().HasValue,"SaleIntent","Select a sale type.");
             if(saving) Required(Id(series).HasValue,nameof(SalesDraft.SeriesId),"Select a series for this year and registration.");
             Required(Id(customer).HasValue,nameof(SalesDraft.CustomerId),"Select a customer.");
             if(Id(customer).HasValue)
@@ -430,9 +506,11 @@ internal static class SalesInvoiceEditor
                 Required(pctOk,nameof(SalesLineInput.DiscountPercent),"Enter a numeric percentage or leave blank.",n);
                 Required(discountOk,nameof(SalesLineInput.DiscountAmount),"Enter a numeric amount or leave blank.",n);
                 var unitId=Id(line.Unit);
+                decimal? manualGst=null;
+                if(!line.Gst.IsReadOnly && Number(line.Gst,out var enteredGst)) manualGst=enteredGst;
                 var input=new SalesLineInput(product.GetValueOrDefault(),unitId==Guid.Empty?null:unitId,
                     quantityOk?qty:1,priceOk?rate:0,line.Inclusive.SelectedItem as string=="Yes",pctOk?pct:0,discountOk?amount:0,
-                    selectedVariant?.Id);
+                    selectedVariant?.Id,line.Gst.IsReadOnly?null:line.Hsn.Text.Trim(),manualGst);
                 issues.AddRange(SalesCalculation.ValidateLine(input,n,validateSubtotal:quantityOk && priceOk));
                 lines.Add(input);
                 decimal? enteredMrp=null;
@@ -452,10 +530,11 @@ internal static class SalesInvoiceEditor
                     completions.Add(new(n,enteredMrp,mapping?.AssignmentId));
             }
             if(issues.Count>0) return (null,issues,completions);
-            return (new(day!.Value,Id(year),Id(series),Id(registration),Id(customer),addresses.BillingId,addresses.ShippingId,selectedPlace,
-                scope,domestic,po.Text,Date(poDate),reference.Text,terms.Text,Date(due),notes.Text,internalRemarks.Text,lines,
-                new(goodsReceipt.Text.Trim(),vehicle.Text.Trim(),weight.Text.Trim(),carrier.Text.Trim(),orderThrough.Text.Trim(),
-                    privateMark.Text.Trim(),document.Text.Trim(),options.PreparedBy??"")),issues,completions);
+            return (new(day!.Value,Id(year),Id(series),Id(registration),Id(customer),addresses.BillingId,addresses.ShippingId,PurchaseOrder:po.Text,
+                PurchaseOrderDate:Date(poDate),Reference:reference.Text,Terms:terms.Text,DueDate:Date(due),Notes:notes.Text,InternalRemarks:internalRemarks.Text,Lines:lines,
+                Transport:new(goodsReceipt.Text.Trim(),vehicle.Text.Trim(),weight.Text.Trim(),carrier.Text.Trim(),orderThrough.Text.Trim(),
+                    privateMark.Text.Trim(),document.Text.Trim(),options.PreparedBy??"",distance.Text.Trim(),transportId.Text.Trim()),
+                EntryDetails:new(CurrentSaleType(),payment.SelectedItem as string??"",tcs.Text.Trim(),reversal.Text.Trim(),ern.Text.Trim())),issues,completions);
         }
 
         void Queue(bool wait=true)
@@ -481,11 +560,9 @@ internal static class SalesInvoiceEditor
                 ShowCalculated(null,"Calculating totals…");
                 var response=await send(SalesAction.Preview,input,completions,ct);
                 if(closed || ct.IsCancellationRequested) return;
-                var gstPending=response.PendingGstLines is not null;
-                ShowCalculated(response.Snapshot,"Totals unavailable. Review the highlighted fields or message.",response.PendingGstLines);
+                ShowCalculated(response.Snapshot,"Totals unavailable. Review the highlighted fields or message.");
                 DisplayErrors(response.FieldErrors??[],explicitPreview,keepNumbering:requireNumbering);
-                dialog.ShowMessage(gstPending?response.Message??SalesFormConfiguration.GstReviewPendingMessage:
-                    SalesInvoiceViewModel.Error(response),gstPending?NoticeKind.Warning:NoticeKind.Error);
+                dialog.ShowMessage(SalesInvoiceViewModel.Error(response),NoticeKind.Error);
                 if(explicitPreview && response.Outcome==CompanyOutcome.Success && response.Snapshot is not null)
                 {
                     var window=SalesInvoiceReadView.Create(response,options);
@@ -494,44 +571,76 @@ internal static class SalesInvoiceEditor
                 }
             });
         }
-        void ShowCalculated(SalesInvoiceSnapshot? snapshot,string error,IReadOnlyList<SalesLineEstimate>? pending=null)
+        void ShowCalculated(SalesInvoiceSnapshot? snapshot,string error)
         {
-            summary.Text=snapshot is not null?Summary(snapshot.Amounts,form,entry:true):pending is null?error:
-                $"Gross {pending.Sum(x=>x.Gross):N2} · Discount {pending.Sum(x=>x.Discount):N2} · GST jurisdiction pending";
+            var actualIntent=snapshot?.Draft.EntryDetails?.Intent;
+            summary.Text=snapshot is not null?Summary(snapshot.Amounts,form,entry:true,
+                intent:options.GraftexEntry?actualIntent:null):error;
             for(var i=0;i<editors.Count;i++)
             {
                 var line=snapshot?.Lines.ElementAtOrDefault(i);
-                var pricing=pending?.ElementAtOrDefault(i);
-                if(line is not null) editors[i].Hsn.Text=line.Tax.Rate.Code;
-                editors[i].Taxable.Text=(line?.Amounts.Taxable??pricing?.Taxable)?.ToString("N2")??"";
-                if(line is not null) editors[i].Gst.Text=Decimal(line.Tax.Rate.Total);
-                editors[i].Total.Text=(line?.Amounts.Total??pricing?.Total)?.ToString("N2")??"";
-                editors[i].Gross.Text=(line?.Amounts.Subtotal??pricing?.Gross)?.ToString("N2")??"";
-                editors[i].AppliedDiscount.Text=(line?.Amounts.Discount??pricing?.Discount)?.ToString("N2")??"";
-                editors[i].TaxAmount.Text=(line?.Amounts.Tax??pricing?.Tax)?.ToString("N2")??"";
+                if(line is not null && editors[i].Hsn.IsReadOnly) editors[i].Hsn.Text=line.Tax.Rate.Code;
+                var split=line?.Tax;
+                var amounts=line?.Amounts;
+                if(options.GraftexEntry && split is not null)
+                {
+                    var interstate=split.Jurisdiction==GstJurisdiction.Interstate;
+                    var row=editors[i];
+                    dialog.ShowConfiguredField(row.IgstPercent,interstate && form.Field("LineIgstPercent").Visible);
+                    dialog.ShowConfiguredField(row.IgstAmount,interstate && form.Field("LineIgstAmount").Visible);
+                    dialog.ShowConfiguredField(row.SgstPercent,!interstate && form.Field("LineSgstPercent").Visible);
+                    dialog.ShowConfiguredField(row.SgstAmount,!interstate && form.Field("LineSgstAmount").Visible);
+                    dialog.ShowConfiguredField(row.CgstPercent,!interstate && form.Field("LineCgstPercent").Visible);
+                    dialog.ShowConfiguredField(row.CgstAmount,!interstate && form.Field("LineCgstAmount").Visible);
+                }
+                editors[i].SgstPercent.Text=split?.SgstPercentage.ToString("0.##")??"";
+                editors[i].SgstAmount.Text=amounts?.Sgst.ToString("N2")??"";
+                editors[i].CgstPercent.Text=split?.CgstPercentage.ToString("0.##")??"";
+                editors[i].CgstAmount.Text=amounts?.Cgst.ToString("N2")??"";
+                editors[i].IgstPercent.Text=split?.IgstPercentage.ToString("0.##")??"";
+                editors[i].IgstAmount.Text=amounts?.Igst.ToString("N2")??"";
+                editors[i].Taxable.Text=amounts?.Taxable.ToString("N2")??"";
+                if(line is not null && editors[i].Gst.IsReadOnly) editors[i].Gst.Text=Decimal(line.Tax.Rate.Total);
+                editors[i].Total.Text=amounts?.Total.ToString("N2")??"";
+                editors[i].Gross.Text=amounts?.Subtotal.ToString("N2")??"";
+                editors[i].AppliedDiscount.Text=amounts?.Discount.ToString("N2")??"";
+                editors[i].TaxAmount.Text=amounts?.Tax.ToString("N2")??"";
             }
         }
         recalculate.Click+=(_,_)=>Queue(false);
-        if(reviewGstButton is not null) reviewGstButton.Click+=ReviewGst;
         addresses.Changed+=()=>Queue();
         dialog.AddHandler(TextBox.TextChangedEvent,new TextChangedEventHandler((_,e)=>{if(e.OriginalSource is TextBox {IsReadOnly:false}) Queue();}));
         dialog.AddHandler(SelectorEvent(),new SelectionChangedEventHandler((_,_)=>Queue()));
         dialog.AddHandler(DatePicker.SelectedDateChangedEvent,new EventHandler<SelectionChangedEventArgs>((_,_)=>Queue()));
         async Task<string?> SaveDraft(bool review)
         {
+            if(addresses.IsEditing) return "Save or cancel the address edit before saving the invoice.";
             preview.Cancel();
             attempted=requireNumbering=true;
             var (input,issues,completions)=Read(true);
             DisplayErrors(issues,true);
             if(input is null) return issues[0].Message;
+            if(options.GraftexEntry && completions.Count>0)
+            {
+                var changes=string.Join(Environment.NewLine,completions.Select(change=>
+                    $"Line {change.Line}: "+string.Join(", ",new[]{
+                        change.Mrp is decimal mrp?$"set missing MRP to {mrp:N2}":null,
+                        change.TaxAssignmentId.HasValue?"link the selected HSN/GST assignment":null
+                    }.OfType<string>())));
+                var consent=MessageBox.Show(dialog,changes+Environment.NewLine+Environment.NewLine+
+                    "Yes saves the draft and updates Product Master. No saves without these master changes. Cancel returns to editing.",
+                    "Confirm Product Master updates",MessageBoxButton.YesNoCancel,MessageBoxImage.Question,MessageBoxResult.Cancel);
+                if(consent==MessageBoxResult.Cancel) return "Save canceled. Your invoice edits are still open.";
+                if(consent==MessageBoxResult.No) completions.Clear();
+            }
             var response=await send(SalesAction.Save,input,completions,CancellationToken.None);
             if(response.Outcome!=CompanyOutcome.Success) DisplayErrors(response.FieldErrors??[],true);
             if(review && response.Row is { } saved && response.Outcome==CompanyOutcome.Success)
                 finalize?.Invoke(saved);
             return response.Outcome==CompanyOutcome.Success?null:SalesInvoiceViewModel.Error(response);
         }
-        dialog.Save(()=>SaveDraft(false),Label("SaveDraft","Save Draft"));
-        if(finalize is not null) dialog.Save(()=>SaveDraft(true),"Save draft & review finalization");
+        dialog.Save(()=>SaveDraft(false),Label("SaveDraft","Save Draft"),primary:true,icon:"\uE74E");
+        if(finalize is not null) dialog.Save(()=>SaveDraft(true),"Save draft & review finalization",icon:"\uE73E");
         Queue();
 
         ComboBox Choice(string label,IEnumerable<SalesChoice> values,Guid? selected,Panel? panel=null)
@@ -548,14 +657,20 @@ internal static class SalesInvoiceEditor
         value=0;
         return string.IsNullOrWhiteSpace(input.Text) || Number(input,out value);
     }
-    internal static string Summary(SalesAmounts a,SalesFormConfiguration? form=null,bool entry=false)=>
+    internal static string Summary(SalesAmounts a,SalesFormConfiguration? form=null,bool entry=false,SalesIntent? intent=null)=>
         $"Subtotal {a.Subtotal:N2} · {Label("Discount","Discount")} {a.Discount:N2} · {Label("Taxable","Taxable value")} {a.Taxable:N2}"+Environment.NewLine+
-        $"{Label("Cgst","CGST")} {a.Cgst:N2} · {Label("Sgst","SGST")} {a.Sgst:N2} · {Label("Igst","IGST")} {a.Igst:N2} · UTGST {a.Utgst:N2} · {Label("Cess","Cess")} {a.Cess:N2}"+Environment.NewLine+
+        string.Join(" · ",new[]{
+            intent!=SalesIntent.Interstate || a.Sgst!=0?$"{Label("Sgst","SGST")} {a.Sgst:N2}":null,
+            intent!=SalesIntent.Interstate || a.Cgst!=0?$"{Label("Cgst","CGST")} {a.Cgst:N2}":null,
+            intent!=SalesIntent.Local || a.Igst!=0?$"{Label("Igst","IGST")} {a.Igst:N2}":null,
+            intent is null || a.Utgst!=0?$"UTGST {a.Utgst:N2}":null,
+            intent is null || a.Cess!=0?$"{Label("Cess","Cess")} {a.Cess:N2}":null
+        }.OfType<string>())+Environment.NewLine+
         $"{Label("RoundOff","Round off")} {a.RoundOff:N2}"+
         (entry && form?.Field("GrandTotal").Visible==false?"":
             $" · {form?.Caption("GrandTotal",Label("Total","Grand total"))??Label("Total","Grand total")} INR {a.Total:N2}");
-    private sealed record Place(string Code,string Label);
     private sealed record LineControls(ComboBox Product,ComboBox Unit,TextBox Quantity,TextBox Price,TextBox Percent,TextBox Discount,
         ComboBox Inclusive,TextBox Hsn,TextBox Taxable,TextBox Gst,TextBox Total,TextBlock Number,TextBox Mrp,ComboBox Mapping,
-        TextBox Gross,TextBox AppliedDiscount,TextBox TaxAmount,ComboBox Variant);
+        TextBox Gross,TextBox AppliedDiscount,TextBox TaxAmount,ComboBox Variant,
+        TextBox SgstPercent,TextBox SgstAmount,TextBox CgstPercent,TextBox CgstAmount,TextBox IgstPercent,TextBox IgstAmount);
 }

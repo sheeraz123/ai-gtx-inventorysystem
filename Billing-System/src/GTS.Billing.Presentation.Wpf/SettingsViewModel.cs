@@ -5,7 +5,11 @@ using GTS.Billing.Printing;
 
 namespace GTS.Billing.Presentation.Wpf;
 
-public sealed record SettingsSection(string Name);
+public sealed record SettingsSection(string Name)
+{
+    public string Caption=>Name==SalesFormConfiguration.Section?"Form & Field Configuration — Sales":Name;
+}
+public sealed record ConfigurationModuleChoice(string Caption,string? SettingsSection);
 public sealed record ScopeChoice(SettingScope Scope,string Label);
 public sealed record SettingChoice(string Value,string Label);
 
@@ -24,6 +28,17 @@ public sealed partial class SettingsViewModel(ApplicationSettingsService service
 
     [ObservableProperty] private IReadOnlyList<SettingsSection> _sections=[];
     [ObservableProperty] private SettingsSection? _section;
+    private const string FormsSection="Forms & Fields Configuration";
+    public IReadOnlyList<ConfigurationModuleChoice> ConfigurationModules {get;}=
+        [new("Menus",ConfigurationModule.Menus),..ShellViewModel.ModuleCatalog.Select(module=>
+            new ConfigurationModuleChoice(module.Title,module.Code switch
+            {
+                "customer"=>ConfigurationModule.CustomerFields,
+                "product"=>ProductFormConfiguration.Section,
+                "invoice"=>SalesFormConfiguration.Section,
+                _=>null
+            }))];
+    [ObservableProperty] private ConfigurationModuleChoice? _selectedConfigurationModule;
     [ObservableProperty] private IReadOnlyList<ScopeChoice> _scopes=[];
     [ObservableProperty] private ScopeChoice? _scope;
     [ObservableProperty] private IReadOnlyList<SettingEntry> _entries=[];
@@ -55,7 +70,11 @@ public sealed partial class SettingsViewModel(ApplicationSettingsService service
     public bool CompanyDetailsAvailable=>CompanyPresentation is not null;
     public bool HasCompanyHelp=>CompanyHelp.Length>0;
     public bool HasUnsavedChanges=>Editing && Value!=draftBaseline || CompanyPresentation?.HasPendingChanges==true;
-    public bool IsSalesLayoutSection=>Section?.Name==SalesFormConfiguration.Section;
+    public bool IsFormsConfiguration=>Section?.Name==FormsSection;
+    private string? ActiveSection=>IsFormsConfiguration?SelectedConfigurationModule?.SettingsSection:Section?.Name;
+    public bool IsSalesLayoutSection=>ActiveSection==SalesFormConfiguration.Section;
+    public string ResetSectionCaption=>IsFormsConfiguration?"Reset selected module to defaults":"Restore section defaults";
+    public bool IsConfigurationHistory=>Section?.Name==ConfigurationModule.History;
     public bool CanList=>IsOpen && !Busy && !DetailOpen && Scope is not null && !ShowSecurity;
     public bool CanView=>CanList && Selected is not null;
     public bool CanEdit=>DetailOpen && !Editing && opened?.CanEdit==true && !Busy;
@@ -130,6 +149,19 @@ public sealed partial class SettingsViewModel(ApplicationSettingsService service
         _=LoadAsync();
     }
 
+    partial void OnSelectedConfigurationModuleChanged(ConfigurationModuleChoice? oldValue,ConfigurationModuleChoice? newValue)
+    {
+        if(changingScope || !IsOpen || !IsFormsConfiguration) return;
+        if(!CanSwitch())
+        {
+            changingScope=true;SelectedConfigurationModule=oldValue;changingScope=false;
+            return;
+        }
+        CloseDetail();
+        RebuildScopes();
+        _=LoadAsync();
+    }
+
     public void SetAccess(AccessSnapshot value)
     {
         if(access.EquivalentTo(value)) return;
@@ -190,10 +222,17 @@ public sealed partial class SettingsViewModel(ApplicationSettingsService service
             options.Insert(1,new(SettingsRegistry.LabelSection));
             if(access.CurrentCompanyId is not null)
                 options.InsertRange(3,new[]{SettingsRegistry.Branding,SettingsRegistry.Bank,SettingsRegistry.Invoice,SettingsRegistry.Sales,
-                    SettingsRegistry.Product,SettingsRegistry.Gst,SettingsRegistry.Printing,SalesFormConfiguration.Section}.Select(x=>new SettingsSection(x)));
+                    SettingsRegistry.Product,SettingsRegistry.Gst,SettingsRegistry.Printing}.Select(x=>new SettingsSection(x)));
+            if(access.CurrentCompanyId is not null) options.AddRange(SalesListConfiguration.Sections.Select(x=>new SettingsSection(x)));
         }
         if(access.Allows("Settings.SecurityView")) options.Add(new(SettingsRegistry.Security));
         if(access.IsSuperAdmin) options.Add(new(LoginPage.Section));
+        if(access.IsSuperAdmin && access.CurrentCompanyId is not null)
+        {
+            options.AddRange(new[]{ConfigurationModule.General,FormsSection,ConfigurationModule.Billing,ConfigurationModule.Shortcuts,EnvelopeConfiguration.Section,ConfigurationModule.History}
+                .Select(name=>new SettingsSection(name)));
+            SelectedConfigurationModule??=ConfigurationModules[0];
+        }
         var previous=Section?.Name;
         Sections=options;
         Section=Sections.FirstOrDefault(x=>x.Name==previous) ?? Sections[0];
@@ -203,7 +242,7 @@ public sealed partial class SettingsViewModel(ApplicationSettingsService service
 
     private void RebuildScopes()
     {
-        var section=Section?.Name;
+        var section=ActiveSection;
         var previous=Scope?.Scope;
         changingScope=true;
         Scopes=AllScopes.Where(x=>
@@ -220,17 +259,24 @@ public sealed partial class SettingsViewModel(ApplicationSettingsService service
     private Task LoadAsync(CancellationToken caller=default)=>Run(async ct=>
     {
         if(Section is null || !IsOpen) return;
-        var name=Section.Name;
+        var name=ActiveSection;
         PreviewText="";
         all=[];Entries=[];Selected=null;Groups=[];Group=null;
         DestroyCompany();
         ShowSecurity=false;
+        if(name is null)
+        {
+            Message="";
+            PreviewText="No configurable fields are registered for this module yet.";
+            return;
+        }
         if(name==SettingsRegistry.Security)
         {
             var state=await Send(new(SettingsAction.Security),ct);
             if(Accept(state)) ShowSecurity=true;
             return;
         }
+        if(name==ConfigurationModule.History) return;
 
         if(Scope is null){Message="No settings in this section are available for the current scope.";return;}
         var scope=Scope.Scope;
@@ -293,7 +339,8 @@ public sealed partial class SettingsViewModel(ApplicationSettingsService service
 
     private void Notify()
     {
-        foreach(var property in new[]{nameof(IsSalesLayoutSection),nameof(CanList),nameof(CanView),nameof(CanEdit),nameof(CanSave),nameof(CanRestore),
+        foreach(var property in new[]{nameof(IsFormsConfiguration),nameof(IsSalesLayoutSection),nameof(ResetSectionCaption),
+            nameof(IsConfigurationHistory),nameof(CanList),nameof(CanView),nameof(CanEdit),nameof(CanSave),nameof(CanRestore),
             nameof(CanRestoreSection),nameof(IsTextSection),nameof(CanUseChoice),nameof(CanUseText),nameof(CanPreviewInvoice),
             nameof(OpenedPrinter),nameof(DetailTitle),nameof(DetailKey),nameof(DetailDescription),nameof(DetailScope),
             nameof(DetailDefault),nameof(RestartNote),nameof(LastUpdated),nameof(Choices),nameof(OpenedInvoiceTemplate),
@@ -347,10 +394,12 @@ public sealed partial class SettingsViewModel(ApplicationSettingsService service
     [RelayCommand(CanExecute=nameof(AllowRestoreSection))]
     private async Task RestoreSectionAsync()
     {
-        if(Scope is null || Section is null || Confirm?.Invoke("Restore all editable values in this section and scope?")!=true) return;
+        if(Scope is null || ActiveSection is not { } section ||
+            Confirm?.Invoke(IsFormsConfiguration?"Reset the selected module to defaults for this company?":
+                "Restore all editable values in this section and scope?")!=true) return;
         var pending=all.Where(x=>x.CanEdit && x.StoredText is not null)
             .Select(x=>new SettingEdit(x.Key,null,x.Version)).ToArray();
-        await PersistAsync(Scope.Scope,Section.Name==SettingsRegistry.Personal?null:Section.Name,pending);
+        await PersistAsync(Scope.Scope,section==SettingsRegistry.Personal?null:section,pending);
     }
 
     private async Task PersistAsync(SettingScope scope,string? section,SettingEdit[] edits)
@@ -472,7 +521,7 @@ public sealed partial class SettingsViewModel(ApplicationSettingsService service
             if(!Accept(result) || result.Entries is null) return;
             var dialog=new SalesFormConfigurationDialog(owner,CompanyLabel,result.Entries,
                 edits=>Send(new(SettingsAction.Save,SettingScope.Company,company,SalesFormConfiguration.Section,edits),ct),
-                ()=>Send(new(SettingsAction.SalesFormHistory,SettingScope.Company,company),ct));
+                ()=>Send(new(SettingsAction.SalesFormHistory,SettingScope.Company,company),ct),result.GraftexSalesEntry);
             changed=dialog.ShowDialog()==true;
         });
         if(changed)
@@ -480,6 +529,50 @@ public sealed partial class SettingsViewModel(ApplicationSettingsService service
             Changed?.Invoke(this,EventArgs.Empty);
             await LoadAsync();
         }
+    }
+
+    [RelayCommand]
+    private Task ViewConfigurationHistoryAsync()=>Run(async ct=>
+    {
+        if(!IsConfigurationHistory || access.CurrentCompanyId is not Guid company) return;
+        var result=await Send(new(SettingsAction.ConfigurationHistory,SettingScope.Company,company),ct);
+        if(!Accept(result) || result.ConfigurationHistory is not { } history) return;
+        var dialog=new MeasureEditorDialog("Configuration audit history",true)
+            {Owner=System.Windows.Application.Current.MainWindow};
+        foreach(var entry in history)
+            dialog.Text($"{entry.AtUtc:u} · {entry.Actor??"Application"} · {entry.Action} · {entry.Key}",
+                entry.Changes,3000,true);
+        if(history.Count==0) dialog.ShowMessage("No configuration changes have been recorded for the selected company.");
+        dialog.ShowDialog();
+    });
+
+    [RelayCommand]
+    private async Task CopyConfigurationAsync()
+    {
+        var changed=false;
+        await Run(async ct=>
+        {
+            if(!IsConfigurationHistory || access.CurrentCompanyId is not Guid company) return;
+            var result=await Send(new(SettingsAction.ConfigurationSources,SettingScope.Company,company),ct);
+            if(!Accept(result) || result.ConfigurationSources is not { Count:>0 } sources)
+            {if(result.Outcome==CompanyOutcome.Success) Message="No other active company is available.";return;}
+            var dialog=new MeasureEditorDialog("Copy configuration to "+CompanyLabel,false)
+                {Owner=System.Windows.Application.Current.MainWindow};
+            var selector=dialog.Choice<ConfigurationSource>("Source company",sources,null,nameof(ConfigurationSource.Name));
+            dialog.ShowMessage("Copies saved general, form, menu and billing overrides. Matching destination settings will be replaced.");
+            dialog.Save(async ()=>
+            {
+                if(selector.SelectedItem is not ConfigurationSource selected) return "Select a source company.";
+                if(System.Windows.MessageBox.Show(dialog,$"Copy saved settings from {selected.Name} to the selected company?",
+                    "Confirm configuration copy",System.Windows.MessageBoxButton.YesNo,System.Windows.MessageBoxImage.Question,
+                    System.Windows.MessageBoxResult.No)!=System.Windows.MessageBoxResult.Yes) return "Copy canceled.";
+                var copied=await Send(new(SettingsAction.CopyConfiguration,SettingScope.Company,company,SourceCompanyId:selected.Id),ct);
+                changed=Accept(copied);
+                return changed?null:Message;
+            },"Copy configuration");
+            dialog.ShowDialog();
+        });
+        if(changed) Changed?.Invoke(this,EventArgs.Empty);
     }
 
     private async Task Run(Func<CancellationToken,Task> action,CancellationToken caller=default)

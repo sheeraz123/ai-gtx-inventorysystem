@@ -46,6 +46,7 @@ public sealed class SettingsDisplay
         if(!listening)
         {
             EventManager.RegisterClassHandler(typeof(DataGrid),FrameworkElement.LoadedEvent,new RoutedEventHandler(GridLoaded),true);
+            EventManager.RegisterClassHandler(typeof(Window),FrameworkElement.LoadedEvent,new RoutedEventHandler(WindowLoaded));
             listening=true;
         }
         if(Current.Values.Count!=0 && settings.Values.Count==Current.Values.Count &&
@@ -53,19 +54,29 @@ public sealed class SettingsDisplay
         Current=settings;
         foreach(var definition in SettingsRegistry.Definitions.Where(x=>x.IsDisplayText || x.Key.StartsWith("App.",StringComparison.Ordinal)))
             app.Resources["Display."+definition.Key]=settings.Text(definition.Key,definition.DefaultText);
-        var dark=settings.Get(SettingsRegistry.Theme)=="Dark";
+        var theme=settings.Get(SettingsRegistry.ShellTheme);
+        var dark=theme=="Professional Dark" || theme=="Existing Theme" && settings.Get(SettingsRegistry.Theme)=="Dark";
         Brush Tone(string light,string night)
         {
             var brush=(SolidColorBrush)new BrushConverter().ConvertFromString(dark?night:light)!;
             brush.Freeze();
             return brush;
         }
-        app.Resources["Palette.Canvas"]=Tone("#F3F5F8","#1E293B");
+        var accent=(Color)ColorConverter.ConvertFromString(settings.Get(SettingsRegistry.AccentColor));
+        var strong=accent;
+        while(RelativeLuminance(strong)>.183) strong=Blend(strong,Colors.Black,.12);
+        var heading=Blend(accent,dark?Color.FromRgb(36,50,71):Colors.White,dark?.72:.83);
+        app.Resources["Palette.Canvas"]=dark?Tone("#FFFFFF","#1E293B"):
+            BrushOf(Blend(accent,Colors.White,theme=="Modern Blue & White"?.94:.965));
+        app.Resources["Palette.ShellHeader"]=BrushOf(Blend(strong,Colors.Black,dark?.43:.18));
         app.Resources["Palette.Surface"]=Tone("#FFFFFF","#243247");
         app.Resources["Palette.Text"]=Tone("#172033","#F1F5F9");
         app.Resources["Palette.Muted"]=Tone("#475569","#CBD5E1");
         app.Resources["Palette.GridLine"]=Tone("#CBD5E1","#475569");
-        app.Resources["Palette.Alternate"]=Tone("#EAF0F7","#2C3C54");
+        app.Resources["Palette.Alternate"]=BrushOf(Blend(accent,dark?Color.FromRgb(36,50,71):Colors.White,.92));
+        app.Resources["Palette.InvoiceHeading"]=BrushOf(heading);
+        app.Resources["Palette.InvoiceAccent"]=BrushOf(strong);
+        app.Resources["Display.FontFamily"]=new FontFamily(settings.Get(SettingsRegistry.InterfaceFont));
         app.Resources["Display.FontSize"]=13.0*settings.Get(SettingsRegistry.FontScale)/100;
         app.Resources["Display.BodyPadding"]=settings.Get(SettingsRegistry.Density)=="Compact"?new Thickness(10,6,10,6):new Thickness(16,10,16,10);
         foreach(var reference in grids.ToArray())
@@ -74,6 +85,39 @@ public sealed class SettingsDisplay
             else grids.Remove(reference);
         }
         Changed?.Invoke(this,EventArgs.Empty);
+    }
+
+    private static Color Blend(Color from,Color to,double amount)
+    {
+        byte Mix(byte first,byte second)=>(byte)Math.Round(first+(second-first)*amount);
+        return Color.FromRgb(Mix(from.R,to.R),Mix(from.G,to.G),Mix(from.B,to.B));
+    }
+
+    private static double RelativeLuminance(Color colour)
+    {
+        double Linear(byte component)
+        {
+            var value=component/255d;
+            return value<=.04045?value/12.92:Math.Pow((value+.055)/1.055,2.4);
+        }
+        return .2126*Linear(colour.R)+.7152*Linear(colour.G)+.0722*Linear(colour.B);
+    }
+
+    private static SolidColorBrush BrushOf(Color colour)
+    {
+        var brush=new SolidColorBrush(colour);
+        brush.Freeze();
+        return brush;
+    }
+
+    private static void WindowLoaded(object sender,RoutedEventArgs args)
+    {
+        if(sender is not Window window || args.OriginalSource!=window) return;
+        window.SetResourceReference(Control.FontFamilyProperty,"Display.FontFamily");
+        if(window.ReadLocalValue(Control.BackgroundProperty)==DependencyProperty.UnsetValue)
+            window.SetResourceReference(Control.BackgroundProperty,"Palette.Canvas");
+        if(window.ReadLocalValue(Control.ForegroundProperty)==DependencyProperty.UnsetValue)
+            window.SetResourceReference(Control.ForegroundProperty,"Palette.Text");
     }
 
     private void GridLoaded(object sender,RoutedEventArgs args)
@@ -124,6 +168,22 @@ public sealed class SettingsDisplay
                 "Hsn"=>Current.Get(SettingsRegistry.ProductHsn),"Sku"=>Current.Get(SettingsRegistry.ProductSku),
                 "Barcode"=>Current.Get(SettingsRegistry.ProductBarcode),_=>true
             });
+            if(product && property is not null)
+            {
+                var field=property switch {"Category"=>"CategoryId","Status"=>"Active","Hsn"=>"TaxClassification",_=>property};
+                permitted &= ProductFormConfiguration.EditorFieldVisible(Current,field);
+                var baselineCaption=ProductFormConfiguration.IsLegacy(Current)?field switch
+                {
+                    "Code"=>"Item Code","Name"=>"Item Name","BaseUnit"=>"Unit","SalesRate"=>"Sale Price",
+                    "TaxClassification"=>"HSN Code",_=>column.Header?.ToString()??field
+                }:column.Header?.ToString()??field;
+                column.Header=ProductFormConfiguration.Caption(Current,field,baselineCaption);
+            }
+            if(id=="Customers" && property=="TradeName")
+            {
+                permitted=ConfigurationModule.CustomerMode(Current,property)!="Hidden";
+                column.Header=ConfigurationModule.CustomerCaption(Current,property,column.Header?.ToString()??"Trade name");
+            }
             column.Visibility=(!preference.Hidden || guarded) && permitted?Visibility.Visible:Visibility.Collapsed;
             column.Width=preference.Width is int width?new DataGridLength(width):baseline.Widths[index];
             if(column is DataGridTextColumn text && !string.IsNullOrEmpty(property))
@@ -148,13 +208,18 @@ public sealed class SettingsDisplay
             ? Current.Get(SettingsRegistry.ProductUnit)=="Sales unit" ? "SalesUnit" : "BaseUnit"
             : property;
         var dates=property is "LastLogin" or "OccurredUtc" or "UpdatedUtc" or "CreatedUtc" or "UpdatedDate";
-        var money=property is "SalesRate" or "Mrp" or "CreditLimit" or "PurchaseRate";
-        if(!dates && !money && targetPath==property) return;
-        var digits=product?Current.Get(SettingsRegistry.ProductRatePlaces):2;
-        var numberSpec=(Current.Get(SettingsRegistry.NumberFormat)=="Grouped"?"N":"F")+digits.ToString(CultureInfo.InvariantCulture);
-        var format=dates?"{0:"+Current.Get(SettingsRegistry.DateFormat)+" "+Current.Get(SettingsRegistry.TimeFormat)+"}" :
-            money?"{0:"+numberSpec+"}":currentBinding?.StringFormat;
-        if(money && Current.Get(SettingsRegistry.CurrencyFormat)=="Currency code")
+        var dateOnly=property is "Date" or "EstablishedOn" or "Start" or "End";
+        var money=property is "SalesRate" or "Mrp" or "CreditLimit" or "PurchaseRate" or "Taxable" or "Tax" or "Total";
+        if(!dates && !dateOnly && !money && targetPath==property) return;
+        var companyFormat=Current.Values.ContainsKey(ConfigurationModule.DateFormat.Key);
+        var date=companyFormat?Current.Get(ConfigurationModule.DateFormat):Current.Get(SettingsRegistry.DateFormat);
+        var time=companyFormat?Current.Get(ConfigurationModule.TimeFormat):Current.Get(SettingsRegistry.TimeFormat);
+        var digits=companyFormat?int.Parse(Current.Get(ConfigurationModule.Precision),CultureInfo.InvariantCulture):
+            product?Current.Get(SettingsRegistry.ProductRatePlaces):2;
+        var numberSpec=(companyFormat || Current.Get(SettingsRegistry.NumberFormat)=="Grouped"?"N":"F")+digits.ToString(CultureInfo.InvariantCulture);
+        var format=dates?"{0:"+date+" "+time+"}":dateOnly?"{0:"+date+"}":
+            money?(companyFormat?"₹":"")+"{0:"+numberSpec+"}":currentBinding?.StringFormat;
+        if(money && !companyFormat && Current.Get(SettingsRegistry.CurrencyFormat)=="Currency code")
         {
             var combined=new MultiBinding {Mode=BindingMode.OneWay,StringFormat="{0:"+numberSpec+"} {1}"};
             combined.Bindings.Add(new Binding(targetPath) {TargetNullValue=""});
@@ -163,8 +228,10 @@ public sealed class SettingsDisplay
             column.Binding=combined;
             return;
         }
-        if(currentBinding?.Path?.Path==targetPath && currentBinding.StringFormat==format) return;
-        column.Binding=new Binding(targetPath) { Mode=BindingMode.OneWay,StringFormat=format,TargetNullValue="" };
+        var culture=money && companyFormat?CultureInfo.GetCultureInfo(
+            Current.Get(ConfigurationModule.Grouping)=="Indian"?"en-IN":"en-US"):null;
+        if(currentBinding?.Path?.Path==targetPath && currentBinding.StringFormat==format && Equals(currentBinding.ConverterCulture,culture)) return;
+        column.Binding=new Binding(targetPath) { Mode=BindingMode.OneWay,StringFormat=format,TargetNullValue="",ConverterCulture=culture };
     }
 
     private static int Index(string? number,int count) =>

@@ -144,6 +144,10 @@ public partial class App : System.Windows.Application
             builder.Services.AddSingleton<SalesInvoiceService>();
             builder.Services.AddSingleton<IDocumentNumberFinalizer>(sp=>sp.GetRequiredService<SalesInvoiceService>());
             builder.Services.AddSingleton<SalesInvoiceViewModel>();
+            builder.Services.AddSingleton<IEnvelopePrintingStore,EnvelopePrintingStore>();
+            builder.Services.AddSingleton<EnvelopePrintingService>();
+            builder.Services.AddSingleton<GTS.Billing.Printing.EnvelopePrintService>();
+            builder.Services.AddSingleton<EnvelopePrintingViewModel>();
             builder.Services.AddSingleton<ISecurityAdministrationStore, SecurityAdministrationStore>();
             builder.Services.AddSingleton<SecurityAdministrationService>();
             builder.Services.AddSingleton<SecurityAdministrationViewModel>();

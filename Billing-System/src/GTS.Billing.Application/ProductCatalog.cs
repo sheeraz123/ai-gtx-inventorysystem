@@ -18,7 +18,7 @@ public sealed record CatalogRow(Guid Id, long Version, string Code, string Name,
 {
     public string Status => Active ? "Active" : "Inactive";
 }
-public sealed record CatalogCategory(Guid? Id, string Label, bool Active);
+public sealed record CatalogCategory(Guid? Id, string Label, bool Active, string? Code = null);
 public sealed record CatalogDetail(CatalogRow Row, CategoryDraft? Category, ProductDraft? Product, byte[]? Image,
     DateTime CreatedUtc, DateTime UpdatedUtc, string CreatedBy, string UpdatedBy);
 public sealed record ProductInvoiceSnapshot(Guid CompanyId, Guid ProductId, long ProductVersion, string Code, string Name,
@@ -36,7 +36,7 @@ public sealed record InvoiceProductLineSnapshot(ProductInvoiceSnapshot Product, 
 public sealed record CatalogResult(CompanyOutcome Outcome, Guid? Company = null, IReadOnlyList<CatalogRow>? Rows = null,
     IReadOnlyList<CatalogCategory>? Categories = null, CatalogDetail? Detail = null, bool More = false,
     IReadOnlyDictionary<string,string>? Errors = null, string? Message = null, ProductInvoiceSnapshot? Snapshot = null,
-    bool DuplicateWarning = false, IReadOnlyList<MeasureChoice>? Brands = null);
+    bool DuplicateWarning = false, IReadOnlyList<MeasureChoice>? Brands = null, IReadOnlyList<MeasureChoice>? Units = null);
 
 public interface IProductCatalogStore
 {
@@ -77,9 +77,8 @@ public sealed class ProductCatalogService(AuthenticationService auth, IApplicati
                     byte[]? image = null;
                     if (request.Action == CatalogAction.Save)
                     {
-                        if (request.Products && request.ProductDraft is { } product)
+                        if (request.Products && request.ProductDraft is not null)
                         {
-                            CatalogRules.ValidateProduct(product, errors);
                             if (request.Upload is { } raw)
                             {
                                 if (request.RemoveImage || raw.Length is < 45 or > CompanyLogo.MaximumBytes)

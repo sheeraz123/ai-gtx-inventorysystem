@@ -27,7 +27,25 @@ public sealed record PlannedModule(string Code, string Title)
 
 public sealed record ShellMenuEntry(PlannedModule Module, IRelayCommand<PlannedModule> Navigate)
 {
-    public string Title => Module.Caption;
+    public string Title => ConfigurationModule.MenuCaption(SettingsDisplay.Current,Module.Code,Module.Caption);
+    public string Icon=>Module.Code switch
+    {
+        "company"=>"\uE821","envelope-printing"=>"\uE715",
+        "customer" or "users"=>"\uE716",
+        "category"=>"\uE8F1",
+        "product"=>"\uE7B8",
+        "unit"=>"\uECC6",
+        "brand"=>"\uE8EC",
+        "hsnsac" or "documentseries"=>"\uE8FD",
+        "tax" or "taxassignments" or "price"=>"\uE8EF",
+        "financialyear"=>"\uE787",
+        "payment"=>"\uE8C7",
+        "credit"=>"\uE710",
+        "debit"=>"\uE738",
+        "backup"=>"\uE8B7",
+        "settings"=>"\uE713",
+        _=>"\uE8A5"
+    };
 }
 
 public sealed class ShellViewModel : ObservableObject
@@ -35,11 +53,13 @@ public sealed class ShellViewModel : ObservableObject
     private AccessSnapshot access=AccessSnapshot.Denied;
     private readonly ShellMenuEntry[] masters;
     private readonly ShellMenuEntry[] transactions;
+    private readonly ShellMenuEntry[] printing;
     private readonly ShellMenuEntry[] administration;
-    public IReadOnlyList<PlannedModule> Modules
+    public IReadOnlyList<PlannedModule> Modules=>ModuleCatalog;
+    internal static IReadOnlyList<PlannedModule> ModuleCatalog
     {
         get;
-    } = new[]
+    } = Array.AsReadOnly(new[]
     {
         new PlannedModule("dashboard", "Dashboard"), new("company", "Company Master"),
         new("customer", "Customer Master"), new("category", "Product Category Master"),
@@ -49,8 +69,9 @@ public sealed class ShellViewModel : ObservableObject
         new("price", "Price List"), new("payment", "Payment Terms"), new("quotation", "Quotation"),
         new("proforma", "Proforma Invoice"), new("invoice", "Sales Invoice"), new("retail", "Retail Invoice"),
         new("credit", "Credit Note"), new("debit", "Debit Note"), new("reports", "Reports"),
-        new("users", "User Management"), new("backup", "Backup and Restore"), new("settings", "Settings")
-    };
+        new("users", "User Management"), new("backup", "Backup and Restore"), new("settings", "Settings"),
+        new("envelope-printing","Envelope Printing")
+    });
     private PlannedModule selectedModule;
     public Func<PlannedModule, bool>? NavigationGuard { get; set; }
     public PlannedModule SelectedModule
@@ -76,19 +97,36 @@ public sealed class ShellViewModel : ObservableObject
     }
     public PlannedModule Dashboard => Modules[0];
     public PlannedModule Reports => Modules.Single(module => module.Code == "reports");
-    public IReadOnlyList<ShellMenuEntry> MasterMenu => Visible(masters);
-    public IReadOnlyList<ShellMenuEntry> TransactionMenu => Visible(transactions);
-    public IReadOnlyList<ShellMenuEntry> AdministrationMenu => Visible(administration);
+    public IReadOnlyList<ShellMenuEntry> MasterMenu => Visible("master",masters);
+    public IReadOnlyList<ShellMenuEntry> TransactionMenu => Visible("transactions",transactions);
+    public IReadOnlyList<ShellMenuEntry> PrintingMenu => Visible("printing",printing);
+    public bool HasPrinting=>PrintingMenu.Count>0;
+    public string PrintingCaption=>ConfigurationModule.MenuCaption(SettingsDisplay.Current,"printing","Printing");
+    public IReadOnlyList<ShellMenuEntry> AdministrationMenu => Visible("administration",administration);
+    public string MasterCaption=>ConfigurationModule.MenuCaption(SettingsDisplay.Current,"master",SettingsDisplay.Text("Navigation.Master","Master"));
+    public string TransactionCaption=>ConfigurationModule.MenuCaption(SettingsDisplay.Current,"transactions",SettingsDisplay.Text("Navigation.Transactions","Transactions"));
+    public string AdministrationCaption=>ConfigurationModule.MenuCaption(SettingsDisplay.Current,"administration",SettingsDisplay.Text("Navigation.Administration","Administration"));
+    public string ReportsCaption=>ConfigurationModule.MenuCaption(SettingsDisplay.Current,"reports",SettingsDisplay.Text("Navigation.Reports","Reports"));
     public bool HasMasters=>MasterMenu.Count>0;
     public bool HasTransactions=>TransactionMenu.Count>0;
     public bool HasAdministration=>AdministrationMenu.Count>0;
-    public bool CanSeeReports=>access.CanNavigate("reports");
-    public bool CanNavigate(PlannedModule module)=>access.CanNavigate(module.Code);
+    public bool CanSeeReports=>CanNavigate(Reports);
+    public bool CanNavigate(PlannedModule module)=>access.CanNavigate(module.Code) && MenuVisible(module.Code) &&
+        (!masters.Any(entry=>entry.Module==module) || MenuVisible("master")) &&
+        (!transactions.Any(entry=>entry.Module==module) || MenuVisible("transactions")) &&
+        (!printing.Any(entry=>entry.Module==module) || MenuVisible("printing")) &&
+        (!administration.Any(entry=>entry.Module==module) || MenuVisible("administration"));
+    private bool MenuVisible(string code)=>access.IsSuperAdmin || ConfigurationModule.MenuVisible(SettingsDisplay.Current,code);
     public string CurrentHeading=>SelectedModule.Code=="dashboard"?SettingsDisplay.Current.Get(SettingsRegistry.HomeHeading):SelectedModule.Caption;
     public string CurrentDescription=>SelectedModule.Code=="dashboard"?SettingsDisplay.Current.Get(SettingsRegistry.Welcome):SelectedModule.Description;
     public void RefreshDisplay()
     {
+        OnPropertyChanged(nameof(PrintingMenu));OnPropertyChanged(nameof(HasPrinting));OnPropertyChanged(nameof(PrintingCaption));
         OnPropertyChanged(nameof(MasterMenu));OnPropertyChanged(nameof(TransactionMenu));OnPropertyChanged(nameof(AdministrationMenu));
+        OnPropertyChanged(nameof(HasMasters));OnPropertyChanged(nameof(HasTransactions));OnPropertyChanged(nameof(HasAdministration));
+        OnPropertyChanged(nameof(CanSeeReports));OnPropertyChanged(nameof(MasterCaption));OnPropertyChanged(nameof(TransactionCaption));
+        OnPropertyChanged(nameof(AdministrationCaption));OnPropertyChanged(nameof(ReportsCaption));
+        if(!CanNavigate(SelectedModule)) SelectedModule=Dashboard;
         OnPropertyChanged(nameof(CurrentHeading));OnPropertyChanged(nameof(CurrentDescription));
     }
 
@@ -106,6 +144,7 @@ public sealed class ShellViewModel : ObservableObject
     public void SetAccess(AccessSnapshot value)
     {
         access=value;
+        OnPropertyChanged(nameof(PrintingMenu));OnPropertyChanged(nameof(HasPrinting));
         OnPropertyChanged(nameof(MasterMenu));OnPropertyChanged(nameof(TransactionMenu));OnPropertyChanged(nameof(AdministrationMenu));
         OnPropertyChanged(nameof(HasMasters));OnPropertyChanged(nameof(HasTransactions));OnPropertyChanged(nameof(HasAdministration));
         OnPropertyChanged(nameof(CanSeeReports));
@@ -125,13 +164,15 @@ public sealed class ShellViewModel : ObservableObject
     {
         selectedModule = Modules[0];
         DatabaseStatus = databaseStatus;
-        NavigateCommand = new RelayCommand<PlannedModule>(module => { if (module is not null) SelectedModule = module; });
+        NavigateCommand = new RelayCommand<PlannedModule>(module => { if (module is not null && CanNavigate(module)) SelectedModule = module; });
         masters = MenuEntries("company", "customer", "category", "product", "unit", "brand", "hsnsac", "tax", "taxassignments", "financialyear", "documentseries", "price", "payment");
         transactions = MenuEntries("quotation", "proforma", "invoice", "retail", "credit", "debit");
+        printing = MenuEntries("envelope-printing");
         administration = MenuEntries("users", "backup", "settings");
     }
 
     private ShellMenuEntry[] MenuEntries(params string[] codes) =>
         codes.Select(code => new ShellMenuEntry(Modules.Single(module => module.Code == code), NavigateCommand)).ToArray();
-    private ShellMenuEntry[] Visible(ShellMenuEntry[] entries)=>entries.Where(x=>CanNavigate(x.Module)).ToArray();
+    private ShellMenuEntry[] Visible(string group,ShellMenuEntry[] entries)=>MenuVisible(group)?
+        entries.Where(x=>CanNavigate(x.Module)).ToArray():[];
 }
