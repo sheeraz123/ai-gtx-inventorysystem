@@ -345,7 +345,8 @@ public sealed class CustomerStore(DevelopmentDatabase database) : ICustomerStore
             d.TradeName,d.DisplayName,d.Gstin,request.IncludePan?d.Pan:null,d.RegistrationType,d.GstLegalName,d.GstStateCode,d.SupplyClassification,d.GstEffectiveDate,
             Address(bill),Address(ship),contact is not null?new(contact.Id!.Value,contact.Name,contact.Designation,request.IncludeContactDetails?contact.Mobile:null,request.IncludeContactDetails?contact.Email:null):null,
             request.IncludeContactDetails?contact?.Mobile??bill.Mobile??d.Mobile:null,request.IncludeContactDetails?contact?.Email??bill.Email??d.Email:null,
-            d.Credit.PurchaseOrderRequired,d.Credit.PaymentTerms,d.Credit.CreditDays,d.Credit.DeliveryMethod,d.Credit.Currency);
+            d.Credit.PurchaseOrderRequired,d.Credit.PaymentTerms,d.Credit.CreditDays,d.Credit.DeliveryMethod,d.Credit.Currency,
+            request.IncludeAadhaarSuffix?d.AadhaarLastFour:null);
         return new(CustomerOutcome.Success,context,Snapshot:snapshot);
     }
 

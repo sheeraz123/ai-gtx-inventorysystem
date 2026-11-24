@@ -6,7 +6,8 @@ public enum CustomerOutcome {Success,InvalidInput,DuplicateWarning,SessionRequir
 public enum CustomerOperation {Context,List,Get,Create,Update,Status,AddAddress,UpdateAddress,DefaultBilling,DefaultShipping,AddContact,UpdateContact,PrimaryContact,Credit,Opening,InvoiceSelection,Snapshot,SaveInvoiceAddress}
 public sealed record CustomerCompanyContext(Guid CompanyId,string Code,string Name);
 public sealed record CustomerFilter(string? Search=null,string? Status=null,string? RegistrationType=null,int Page=1,int PageSize=50);
-public sealed record CustomerSnapshotRequest(Guid? BillingAddressId=null,Guid? ShippingAddressId=null,Guid? ContactId=null,bool IncludePan=false,bool IncludeContactDetails=false);
+public sealed record CustomerSnapshotRequest(Guid? BillingAddressId=null,Guid? ShippingAddressId=null,Guid? ContactId=null,
+    bool IncludePan=false,bool IncludeContactDetails=false,bool IncludeAadhaarSuffix=false);
 public sealed record CustomerRequest(CustomerOperation Operation,Guid? ExpectedCompanyId=null,Guid? CustomerId=null,long? ExpectedVersion=null,
     CustomerDraft? Draft=null,CustomerFilter? Filter=null,string? Status=null,CustomerAddressDraft? Address=null,CustomerContactDraft? Contact=null,
     Guid? EntryId=null,CustomerCreditDraft? Credit=null,CustomerOpeningDraft? Opening=null,CustomerSnapshotRequest? Snapshot=null,bool AcknowledgeDuplicates=false);
@@ -27,7 +28,8 @@ public sealed record CustomerContactSnapshot(Guid SourceContactId,string Name,st
 public sealed record CustomerInvoiceSnapshot(int FormatVersion,DateTime CapturedUtc,Guid CompanyId,Guid CustomerId,long CustomerVersion,
     string Code,string LegalName,string? TradeName,string? DisplayName,string? Gstin,string? Pan,string RegistrationType,string? GstLegalName,string? RegisteredStateCode,
     string? SupplyClassification,DateOnly? GstEffectiveDate,CustomerAddressSnapshot BillTo,CustomerAddressSnapshot ShipTo,
-    CustomerContactSnapshot? Contact,string? ContactNumber,string? ContactEmail,bool PurchaseOrderRequired,string? PaymentTerms,int CreditDays,string DeliveryMethod,string Currency);
+    CustomerContactSnapshot? Contact,string? ContactNumber,string? ContactEmail,bool PurchaseOrderRequired,string? PaymentTerms,
+    int CreditDays,string DeliveryMethod,string Currency,string? AadhaarLastFour=null);
 public sealed record OpeningBalanceImportCandidate(Guid CompanyId,Guid CustomerId,Guid SourceDraftId,long SourceVersion,
     decimal AbsoluteAmount,string Nature,DateOnly? AsOfDate,string? Reference);
 public sealed record CustomerFinancialAvailability(bool Available,decimal? OutstandingBalance,string Message);

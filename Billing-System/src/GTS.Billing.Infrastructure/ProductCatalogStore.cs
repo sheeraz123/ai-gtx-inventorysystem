@@ -215,6 +215,9 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
         return new(CompanyOutcome.Success, company);
     }
 
+    private static bool UsesBase(string? unit,string baseUnit)=>string.IsNullOrWhiteSpace(unit) ||
+        CatalogRules.Normalize(unit)==CatalogRules.Normalize(baseUnit);
+
     internal static async Task<CatalogResult> ProductAsync(BillingDbContext db, CatalogRequest request, Guid company, Guid actor,
         IQueryable<ProductCategory> categories, IQueryable<Product> products, byte[]? image,
         bool canChangeStatus,bool canEditPricing,CancellationToken ct,bool allowUnlinkedTax=false)
@@ -357,15 +360,27 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
                 else if(input.CategoryId==Guid.Empty)
                     return Invalid("CategoryId","Choose an active category or configure a default in Product / Item Master settings.");
             }
-            if(legacy && isNew)
+            Guid? selectedBaseUnitId=null;
+            if(legacy && (isNew || !string.Equals(input.BaseUnit.Trim(),product?.BaseUnit,StringComparison.Ordinal)))
             {
                 var unit=CatalogRules.Normalize(input.BaseUnit);
                 var activeUnit=await db.Set<UnitOfMeasure>().Where(x=>x.CompanyId==company && x.Active &&
                     (x.Code==unit || x.NormalizedName==unit)).ToArrayAsync(ct);
                 if(activeUnit.Length!=1) return Invalid("BaseUnit","Choose an unambiguous active company unit.");
-                input=input with {BaseUnit=activeUnit[0].Code,Code=await NextItemCodeAsync(products,ct)??""};
-                if(!ProductFormConfiguration.EditorFieldVisible(settings,"SalesUnit"))
+                selectedBaseUnitId=activeUnit[0].Id;
+                input=input with {BaseUnit=activeUnit[0].Code};
+                if(product is not null && !UsesBase(product.BaseUnit,input.BaseUnit) &&
+                    (product.SalesFactor!=1 || product.PurchaseFactor!=1 ||
+                     !UsesBase(product.SalesUnit,product.BaseUnit) || !UsesBase(product.PurchaseUnit,product.BaseUnit)))
+                    return Invalid("BaseUnit","Use Edit units and brand to update a product with separate unit conversions.");
+                if(isNew) input=input with {Code=await NextItemCodeAsync(products,ct)??""};
+                if(isNew && !ProductFormConfiguration.EditorFieldVisible(settings,"SalesUnit") ||
+                    product is not null && product.SalesFactor==1 && input.SalesFactor==1 &&
+                    UsesBase(product.SalesUnit,product.BaseUnit) && UsesBase(input.SalesUnit,product.BaseUnit))
                     input=input with {SalesUnit=null,SalesFactor=1};
+                if(product is not null && product.PurchaseFactor==1 && input.PurchaseFactor==1 &&
+                    UsesBase(product.PurchaseUnit,product.BaseUnit) && UsesBase(input.PurchaseUnit,product.BaseUnit))
+                    input=input with {PurchaseUnit=null,PurchaseFactor=1};
             }
             var validation=new Dictionary<string,string>();
             CatalogRules.ValidateProduct(input,validation);
@@ -428,7 +443,31 @@ public sealed class ProductCatalogStore(DevelopmentDatabase database) : IProduct
                     (input.BaseUnit.Trim()!=product.BaseUnit || CatalogRules.Optional(input.SalesUnit)!=product.SalesUnit ||
                      CatalogRules.Optional(input.PurchaseUnit)!=product.PurchaseUnit || input.SalesFactor!=product.SalesFactor ||
                      input.PurchaseFactor!=product.PurchaseFactor || input.QuantityPrecision!=product.QuantityPrecision))
-                    return Invalid("BaseUnit", "Change linked units through Edit units and brand. The original units and factors are retained.");
+                {
+                    if(selectedBaseUnitId is not Guid newBase || input.SalesFactor!=1 || input.PurchaseFactor!=1 ||
+                        !UsesBase(input.SalesUnit,input.BaseUnit) || !UsesBase(input.PurchaseUnit,input.BaseUnit) ||
+                        await db.Set<ProductUnitConversion>().AnyAsync(x=>x.CompanyId==company && x.ProductId==product.Id &&
+                            x.Active && x.UnitId!=measureProfile.BaseUnitId,ct))
+                        return Invalid("BaseUnit","Use Edit units and brand to update a product with separate unit conversions.");
+                    var conversions=await db.Set<ProductUnitConversion>().Where(x=>x.CompanyId==company &&
+                        x.ProductId==product.Id && (x.UnitId==measureProfile.BaseUnitId || x.UnitId==newBase)).ToArrayAsync(ct);
+                    var previous=conversions.SingleOrDefault(x=>x.UnitId==measureProfile.BaseUnitId);
+                    var next=conversions.SingleOrDefault(x=>x.UnitId==newBase);
+                    if(previous is not null && previous!=next)
+                    {
+                        previous.Active=previous.DefaultSales=previous.DefaultPurchase=false;
+                        await db.SaveChangesAsync(ct);
+                    }
+                    if(next is null)
+                    {
+                        next=new ProductUnitConversion {CompanyId=company,ProductId=product.Id,UnitId=newBase};
+                        db.Add(next);
+                    }
+                    next.Active=true;
+                    next.FactorToBaseUnit=1;
+                    next.DefaultSales=next.DefaultPurchase=true;
+                    measureProfile.BaseUnitId=newBase;
+                }
             }
             product.CategoryId=input.CategoryId;
             product.NormalizedName=name;

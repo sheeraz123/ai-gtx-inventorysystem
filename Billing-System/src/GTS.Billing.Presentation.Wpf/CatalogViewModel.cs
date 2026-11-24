@@ -439,12 +439,15 @@ public sealed partial class CatalogViewModel(ProductCatalogService service, Unit
         var candidates=categoryOptions.Where(x => x.Id == currentLink || x.Active && (Products || x.Id != detail?.Row.Id)).ToArray();
         Choices=Products ? candidates : [new(null,"Root category",true), ..candidates];
         Link=Choices.FirstOrDefault(x => x.Id == currentLink);
+        var currentUnit=detail?.Product?.BaseUnit;
+        IReadOnlyList<CustomerChoice> availableUnits=string.IsNullOrWhiteSpace(currentUnit) ||
+            unitOptions.Any(unit=>unit.Key==currentUnit)?unitOptions:[new(currentUnit,currentUnit),..unitOptions];
         allSections=Products
             ? [
                 new("General", [Text("Code",LegacyProduct?"Item Code":"Code *"), Text("Name",LegacyProduct?"Item Name *":"Name *"), Text("ShortName","Short name"), Long("Description","Description"), Choice("Kind","Product type *",["Goods","Services"]), Check("Active","Active")]),
                 new("Identification", [Text("Brand","Brand"), Text("Sku","SKU"), Text("Barcode","Barcode"), Text("PartNumber","Manufacturer part number"), Text("ModelNumber","Model number")]),
-                new("Units", [LegacyProduct && detail is null
-                    ?new CustomerField("BaseUnit","Unit *","Choice",unitOptions)
+                new("Units", [LegacyProduct
+                    ?new CustomerField("BaseUnit","Unit *","Choice",availableUnits)
                     :Text("BaseUnit",LegacyProduct?"Unit *":"Base unit *"), Text("SalesUnit","Sales unit"), Money("SalesFactor","Base units per sales unit"), Text("PurchaseUnit","Purchase unit"), Money("PurchaseFactor","Base units per purchase unit"), Integer("QuantityPrecision","Quantity decimal places")]),
                 new("GST & Tax", [Text("Hsn","Legacy HSN / SAC"), Money("GstRate","Legacy GST rate %"), Check("TaxExempt","Legacy exemption flag"), Long("TaxNotes","Tax classification notes")]),
                 new("Pricing", [Money("PurchaseRate","Default purchase rate"), Money("SalesRate",LegacyProduct?"Sale Price":"Default sales rate"), Money("Mrp",LegacyProduct?"M.R.P.":"MRP"), Check("SalesInclusive","Sales price includes tax"), Check("PurchaseInclusive","Purchase price includes tax"), Text("Currency","Currency *"), Date("PricingDate","Pricing effective date")]),
@@ -463,7 +466,6 @@ public sealed partial class CatalogViewModel(ProductCatalogService service, Unit
             field.ReadOnly=ViewOnly || field.Name is "Hsn" or "GstRate" or "TaxExempt" ||
                 (LegacyProduct || detail is not null) && field.Name=="Code" || field.Name=="Active"&&!Can("StatusChange") ||
                 Products && !Can("PricingEdit") && section.Title=="Pricing" ||
-                LegacyProduct && detail is not null && field.Name=="BaseUnit" ||
                 Products && ProductFormConfiguration.Mode(defaults,field.Name)=="Read-only";
             field.IsVisible=!Products || ProductFormConfiguration.TabVisible(defaults, section.Title) &&
                 ProductFieldVisible(field.Name, !readOnly || (field.Name switch

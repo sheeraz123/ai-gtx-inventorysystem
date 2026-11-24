@@ -19,7 +19,7 @@ public sealed class DevelopmentDatabaseMaintenance(DevelopmentDatabase database,
         "20261119000300_ProductCatalog", "20261119000400_InvoiceTaxDefault",
         "20261119000500_CustomerInputFlexibility", "20261119000600_SecurityAdministration",
         "20261119000700_ApplicationSettings", "20261119000800_UnitBrandMaster", TaxCatalogMigration, NumberingMigration,
-        SalesInvoiceMigration, ProductVariantMigration
+        SalesInvoiceMigration, ProductVariantMigration, "20261124000100_CustomerAadhaarSuffix"
     };
     private sealed record Marker(Guid InstallationId,string DatabasePath,string State);
     private const string UnitBrandMigration="20261119000800_UnitBrandMaster";

@@ -488,7 +488,7 @@ internal sealed class CompanySalesInvoices(BillingDbContext db,Company company,G
             draft.Lines is not {Count:>0}) return Invalid("Choose a supplier registration, customer and at least one product.");
         var customer=await Customers.SingleAsync(x=>x.Id==draft.CustomerId,ct);
         var customerResult=await CustomerStore.Snapshot(db,customer,new(company.Id,company.Code,company.LegalName),
-            new(draft.BillingAddressId,draft.ShippingAddressId,IncludeContactDetails:true),ct);
+            new(draft.BillingAddressId,draft.ShippingAddressId,IncludeContactDetails:true,IncludeAadhaarSuffix:true),ct);
         if(customerResult.Snapshot is not {} buyer) return FieldError(nameof(draft.CustomerId),customerResult.Detail?.Eligibility?.MissingOrBlockingDetails.FirstOrDefault()??"Review customer eligibility and billing/shipping addresses.");
         if(buyer.PurchaseOrderRequired && string.IsNullOrWhiteSpace(draft.PurchaseOrder)) return FieldError(nameof(draft.PurchaseOrder),"Enter the purchase order required by this customer.");
         if(buyer.Currency!="INR" || buyer.BillTo.Country!="IN" || buyer.ShipTo.Country!="IN")

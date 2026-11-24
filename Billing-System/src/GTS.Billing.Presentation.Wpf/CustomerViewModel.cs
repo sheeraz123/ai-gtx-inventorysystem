@@ -139,7 +139,8 @@ public sealed class CustomerViewModel : ObservableObject,IDisposable
         foreach(var field in GeneralFields)
             field.UseCustomerConfiguration=ConfigurationModule.CustomerFieldCatalog.Any(item=>item.Key==field.Name);
         TaxFields=[CustomerEditorFields.Choice("RegistrationType","GST registration type *",CustomerRules.Registrations),
-            CustomerEditorFields.Text("Gstin","GSTIN"),CustomerEditorFields.Text("Pan","PAN"),CustomerEditorFields.Text("GstLegalName","Legal name as per GST"),
+            CustomerEditorFields.Text("Gstin","GSTIN"),CustomerEditorFields.Text("Pan","PAN"),
+            CustomerEditorFields.Text("AadhaarLastFour","Aadhaar (last 4 digits only)"),CustomerEditorFields.Text("GstLegalName","Legal name as per GST"),
             CustomerEditorFields.State("GstStateCode","GST registered state / UT",true),CustomerEditorFields.Date("GstEffectiveDate","Registration effective date"),
             CustomerEditorFields.Text("SupplyClassification","Supply / tax treatment label (no rates inferred)"),
             CustomerEditorFields.Long("ExemptionNotes","Exemption / special-status notes")];

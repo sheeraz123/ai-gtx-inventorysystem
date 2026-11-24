@@ -122,13 +122,16 @@ internal sealed class ClassicInvoiceLayout(InvoicePrintModel invoice, string? co
         var street=Text(Lines(address.Line1,address.Line2,address.Landmark,address.Locality),11,billing);
         street.Margin=new Thickness(0,4,0,5);
         var block=Stack(Text(title,11,true),Text(partyName,12,billing),street,Text(locality,11,billing),
-            Columns([66,34],false,Labeled("State",address.State,11),Labeled("Code",address.StateCode,11)),
-            Labeled("GSTIN",invoice.Customer.Gstin,11));
+            Columns([66,34],false,Labeled("State",address.State,11),Labeled("Code",address.StateCode,11)));
         if(billing)
         {
             var mobile=Show("CustomerContact")?address.Mobile??invoice.Customer.ContactNumber:null;
+            var suffix=invoice.Customer.AadhaarLastFour;
+            var masked=suffix is {Length:4} && suffix.All(char.IsAsciiDigit)?$"XXXX XXXX {suffix}":null;
+            block.Children.Add(Columns([66,34],false,Labeled("GSTIN",invoice.Customer.Gstin,11),Labeled("Aadhaar",masked,11)));
             block.Children.Add(Columns([66,34],false,Text(Field("Mob",mobile),11),Labeled("PIN CODE",address.PostalCode,11)));
         }
+        else block.Children.Add(Labeled("GSTIN",invoice.Customer.Gstin,11));
         return block;
     }
 
