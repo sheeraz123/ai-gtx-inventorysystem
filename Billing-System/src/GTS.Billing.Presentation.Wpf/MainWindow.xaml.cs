@@ -457,7 +457,7 @@ public partial class MainWindow : Window
                 FontWeight=selected?FontWeights.SemiBold:FontWeights.Normal
             };
             System.Windows.Automation.AutomationProperties.SetName(button,title);
-            button.SetResourceReference(BackgroundProperty,selected?"Palette.GridLine":"Palette.Surface");
+            button.SetResourceReference(BackgroundProperty,selected?"Palette.InvoiceHeading":"Palette.Surface");
             return button;
         }
 

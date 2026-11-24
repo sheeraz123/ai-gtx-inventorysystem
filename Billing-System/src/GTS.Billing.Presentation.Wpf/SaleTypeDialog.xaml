@@ -50,7 +50,7 @@
       <TextBlock Text="&#xE711;" FontFamily="Segoe MDL2 Assets"/>
      </Button>
      <Border DockPanel.Dock="Left" CornerRadius="4" Background="White" Padding="5,1" VerticalAlignment="Center">
-      <TextBlock Text="GTS" Foreground="#174A82" FontWeight="Bold"/>
+      <TextBlock Text="GTS" Foreground="{DynamicResource Palette.InvoiceAccent}" FontWeight="Bold"/>
      </Border>
      <TextBlock Text="Select Sale Type" Foreground="White" FontWeight="SemiBold" FontSize="20"
                 VerticalAlignment="Center" Margin="11,0,0,0"/>

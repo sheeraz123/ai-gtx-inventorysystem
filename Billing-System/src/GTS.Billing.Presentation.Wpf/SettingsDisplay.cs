@@ -46,6 +46,7 @@ public sealed class SettingsDisplay
         if(!listening)
         {
             EventManager.RegisterClassHandler(typeof(DataGrid),FrameworkElement.LoadedEvent,new RoutedEventHandler(GridLoaded),true);
+            EventManager.RegisterClassHandler(typeof(Window),FrameworkElement.LoadedEvent,new RoutedEventHandler(WindowLoaded));
             listening=true;
         }
         if(Current.Values.Count!=0 && settings.Values.Count==Current.Values.Count &&
@@ -55,22 +56,27 @@ public sealed class SettingsDisplay
             app.Resources["Display."+definition.Key]=settings.Text(definition.Key,definition.DefaultText);
         var theme=settings.Get(SettingsRegistry.ShellTheme);
         var dark=theme=="Professional Dark" || theme=="Existing Theme" && settings.Get(SettingsRegistry.Theme)=="Dark";
-        var blue=theme=="Modern Blue & White";
         Brush Tone(string light,string night)
         {
             var brush=(SolidColorBrush)new BrushConverter().ConvertFromString(dark?night:light)!;
             brush.Freeze();
             return brush;
         }
-        app.Resources["Palette.Canvas"]=Tone(blue?"#EDF4FF":"#F3F5F8","#1E293B");
-        app.Resources["Palette.ShellHeader"]=Tone(blue?"#103875":"#15263C","#111B2A");
+        var accent=(Color)ColorConverter.ConvertFromString(settings.Get(SettingsRegistry.AccentColor));
+        var strong=accent;
+        while(RelativeLuminance(strong)>.183) strong=Blend(strong,Colors.Black,.12);
+        var heading=Blend(accent,dark?Color.FromRgb(36,50,71):Colors.White,dark?.72:.83);
+        app.Resources["Palette.Canvas"]=dark?Tone("#FFFFFF","#1E293B"):
+            BrushOf(Blend(accent,Colors.White,theme=="Modern Blue & White"?.94:.965));
+        app.Resources["Palette.ShellHeader"]=BrushOf(Blend(strong,Colors.Black,dark?.43:.18));
         app.Resources["Palette.Surface"]=Tone("#FFFFFF","#243247");
         app.Resources["Palette.Text"]=Tone("#172033","#F1F5F9");
         app.Resources["Palette.Muted"]=Tone("#475569","#CBD5E1");
         app.Resources["Palette.GridLine"]=Tone("#CBD5E1","#475569");
-        app.Resources["Palette.Alternate"]=Tone("#EAF0F7","#2C3C54");
-        app.Resources["Palette.InvoiceHeading"]=Tone("#DCEBFC","#304F75");
-        app.Resources["Palette.InvoiceAccent"]=Tone("#174A82","#24578A");
+        app.Resources["Palette.Alternate"]=BrushOf(Blend(accent,dark?Color.FromRgb(36,50,71):Colors.White,.92));
+        app.Resources["Palette.InvoiceHeading"]=BrushOf(heading);
+        app.Resources["Palette.InvoiceAccent"]=BrushOf(strong);
+        app.Resources["Display.FontFamily"]=new FontFamily(settings.Get(SettingsRegistry.InterfaceFont));
         app.Resources["Display.FontSize"]=13.0*settings.Get(SettingsRegistry.FontScale)/100;
         app.Resources["Display.BodyPadding"]=settings.Get(SettingsRegistry.Density)=="Compact"?new Thickness(10,6,10,6):new Thickness(16,10,16,10);
         foreach(var reference in grids.ToArray())
@@ -79,6 +85,39 @@ public sealed class SettingsDisplay
             else grids.Remove(reference);
         }
         Changed?.Invoke(this,EventArgs.Empty);
+    }
+
+    private static Color Blend(Color from,Color to,double amount)
+    {
+        byte Mix(byte first,byte second)=>(byte)Math.Round(first+(second-first)*amount);
+        return Color.FromRgb(Mix(from.R,to.R),Mix(from.G,to.G),Mix(from.B,to.B));
+    }
+
+    private static double RelativeLuminance(Color colour)
+    {
+        double Linear(byte component)
+        {
+            var value=component/255d;
+            return value<=.04045?value/12.92:Math.Pow((value+.055)/1.055,2.4);
+        }
+        return .2126*Linear(colour.R)+.7152*Linear(colour.G)+.0722*Linear(colour.B);
+    }
+
+    private static SolidColorBrush BrushOf(Color colour)
+    {
+        var brush=new SolidColorBrush(colour);
+        brush.Freeze();
+        return brush;
+    }
+
+    private static void WindowLoaded(object sender,RoutedEventArgs args)
+    {
+        if(sender is not Window window || args.OriginalSource!=window) return;
+        window.SetResourceReference(Control.FontFamilyProperty,"Display.FontFamily");
+        if(window.ReadLocalValue(Control.BackgroundProperty)==DependencyProperty.UnsetValue)
+            window.SetResourceReference(Control.BackgroundProperty,"Palette.Canvas");
+        if(window.ReadLocalValue(Control.ForegroundProperty)==DependencyProperty.UnsetValue)
+            window.SetResourceReference(Control.ForegroundProperty,"Palette.Text");
     }
 
     private void GridLoaded(object sender,RoutedEventArgs args)

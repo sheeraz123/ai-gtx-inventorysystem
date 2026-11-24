@@ -10,7 +10,8 @@
    <local:NoticeBanner Text="{Binding Message}"/>
   </StackPanel>
   <WrapPanel x:Name="Actions" DockPanel.Dock="Bottom" Margin="0,10,0,0">
-   <Button x:Name="PrintButton" Content="Print envelope" Click="PrintClicked" Padding="12,5" Margin="0,0,8,0"/>
+   <Button x:Name="PrintButton" Content="Print envelope" Click="PrintClicked" Padding="12,5" Margin="0,0,8,0"
+           Style="{StaticResource PrimaryBillingButton}"/>
    <Button Content="Print settings" Click="SettingsClicked" Padding="12,5" Margin="0,0,8,0"
            Visibility="{Binding CanConfigure,Converter={StaticResource Visible}}"/>
    <Button Content="Close" Click="CloseClicked" Padding="12,5"/>
@@ -20,7 +21,9 @@
    <Border BorderBrush="{DynamicResource Palette.GridLine}" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,10,0">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
      <StackPanel>
-      <TextBlock Text="Customer details" FontSize="17" FontWeight="SemiBold"/>
+      <Border Background="{DynamicResource Palette.InvoiceHeading}" CornerRadius="4" Padding="8,5">
+       <TextBlock Text="Customer details" FontSize="17" FontWeight="SemiBold"/>
+      </Border>
       <Label Content="Customer" Target="{Binding ElementName=CustomerChoice}" Margin="0,5,0,0"/>
       <local:SearchableComboBox x:Name="CustomerChoice" RemoteSearch="True"
                                SearchItemsSource="{Binding Matches}" DisplayMemberPath="Label"
@@ -37,7 +40,9 @@
    <Border Grid.Column="1" BorderBrush="{DynamicResource Palette.GridLine}" BorderThickness="1" CornerRadius="6">
     <DockPanel>
      <StackPanel DockPanel.Dock="Top" Margin="10,8">
-      <TextBlock Text="Live print preview" FontSize="17" FontWeight="SemiBold"/>
+      <Border Background="{DynamicResource Palette.InvoiceHeading}" CornerRadius="4" Padding="8,5">
+       <TextBlock Text="Live print preview" FontSize="17" FontWeight="SemiBold"/>
+      </Border>
       <TextBlock x:Name="PreviewStatus" TextWrapping="Wrap" Margin="0,3,0,5"/>
       <WrapPanel>
        <Button Content="−" Click="ZoomOut" ToolTip="Zoom out"/>

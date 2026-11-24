@@ -91,6 +91,14 @@ public static partial class SettingsRegistry
     public static readonly SettingKey<string> Theme=Choice("Appearance.Theme",Appearance,"Theme","Light",PersonalView,["Light","Dark"]);
     public static readonly SettingKey<string> ShellTheme=Choice("Appearance.CompanyTheme",Appearance,"Company theme","Existing Theme",
         Company,["Existing Theme","Modern Blue & White","Professional Dark"],BusinessEdit);
+    public static readonly SettingKey<string> AccentColor=new("Appearance.AccentColor",Appearance,"Accent colour",
+        "Enter a colour as #RRGGBB, for example #0755B1.",Company,SettingKind.Text,"#0755B1",text=>
+        {
+            var value=text.Trim();
+            return (value.Length==7 && value[0]=='#' && value.Skip(1).All(char.IsAsciiHexDigit),value.ToUpperInvariant());
+        },value=>value,BusinessEdit);
+    public static readonly SettingKey<string> InterfaceFont=Choice("Appearance.InterfaceFont",Appearance,"Interface font",
+        "Segoe UI",Company,["Segoe UI","Arial","Tahoma","Verdana"],BusinessEdit);
     public static readonly SettingKey<string> NavigationPosition=Choice("Appearance.NavigationPosition",Appearance,"Navigation position",
         "TOP_NAVIGATION",Company,["TOP_NAVIGATION","LEFT_NAVIGATION","RIGHT_NAVIGATION"],BusinessEdit);
     public static readonly SettingKey<string> InvoiceListLayout=Choice("SalesList.Layout",SalesListConfiguration.Filters,"Invoice list layout",
@@ -194,7 +202,7 @@ public static partial class SettingsRegistry
 
     public static readonly ImmutableArray<SettingDefinition> Definitions=Core.Concat(PrintMargins).Concat(OptionalSections).Concat(GridLayouts)
         .Concat(EnvelopeConfiguration.Definitions)
-        .Concat([ShellTheme,NavigationPosition,InvoiceListLayout,InvoiceFilterArrangement,InvoiceActionArrangement])
+        .Concat([ShellTheme,AccentColor,InterfaceFont,NavigationPosition,InvoiceListLayout,InvoiceFilterArrangement,InvoiceActionArrangement])
         .Concat(SalesListConfiguration.Items)
         .Concat(LoginPage.Keys.Values)
         .Concat(SalesFormConfiguration.Fields.Select(x=>x.Setting))
