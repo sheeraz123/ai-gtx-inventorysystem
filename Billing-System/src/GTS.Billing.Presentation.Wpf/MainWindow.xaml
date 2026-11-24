@@ -21,6 +21,7 @@
   <Style x:Key="ShellMenuHeader" TargetType="MenuItem">
    <Setter Property="Padding" Value="15,7"/>
    <Setter Property="HeaderTemplate" Value="{StaticResource ShellIconHeader}"/>
+   <EventSetter Event="SubmenuOpened" Handler="PlaceNavigationSubmenu"/>
   </Style>
  </Window.Resources>
  <Grid Background="{DynamicResource Palette.Canvas}">
@@ -61,6 +62,19 @@
   <Border x:Name="NavigationHost" DockPanel.Dock="Top" Background="{DynamicResource Palette.Surface}" BorderBrush="{DynamicResource Palette.GridLine}" BorderThickness="0,0,0,1" Padding="12,4">
    <DockPanel>
    <Button x:Name="ToggleNavigation" DockPanel.Dock="Top" Content="Hide navigation" Click="ToggleNavigationClicked" Visibility="Collapsed" Margin="0,0,0,6"/>
+   <Grid>
+   <DockPanel x:Name="LeftNavigation" Visibility="Collapsed">
+    <DockPanel DockPanel.Dock="Top" Margin="0,4,0,8">
+     <Button x:Name="ToggleLeftNavigation" DockPanel.Dock="Right" Content="☰" Padding="7,4"
+             Click="ToggleLeftNavigationClicked" AutomationProperties.Name="Toggle navigation" ToolTip="Toggle navigation"/>
+     <TextBlock x:Name="LeftNavigationCompany" Text="{Binding Text,ElementName=CurrentCompanyIndicator}"
+                FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,6,0"/>
+    </DockPanel>
+    <Separator DockPanel.Dock="Top"/>
+    <ScrollViewer x:Name="LeftNavigationScroll" VerticalScrollBarVisibility="Auto">
+     <StackPanel x:Name="LeftNavigationItems"/>
+    </ScrollViewer>
+   </DockPanel>
    <Menu x:Name="NavigationMenu" Background="Transparent" Foreground="{DynamicResource Palette.Text}" AutomationProperties.Name="Billing navigation">
     <MenuItem Header="{DynamicResource Display.Navigation.Dashboard}" Tag="&#xE80F;" Style="{StaticResource ShellMenuHeader}"
      Command="{Binding NavigateCommand}" CommandParameter="{Binding Dashboard}"/>
@@ -80,6 +94,7 @@
      Visibility="{Binding HasAdministration,Converter={StaticResource Visible}}"
      ItemContainerStyle="{StaticResource ShellSubmenuItem}" MouseEnter="OpenNavigationSubmenu"/>
    </Menu>
+   </Grid>
    </DockPanel>
   </Border>
   <Grid>
