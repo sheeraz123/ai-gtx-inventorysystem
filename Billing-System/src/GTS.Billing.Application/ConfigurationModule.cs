@@ -25,6 +25,7 @@ public static class ConfigurationModule
     private static readonly (string Id,string Name)[] MenuItems=
     [
         ("master","Master"),("transactions","Transactions"),("administration","Administration"),("reports","Reports"),
+        ("printing","Printing"),("envelope-printing","Envelope Printing"),
         ("company","Company Master"),("customer","Customer Master"),("category","Product Category Master"),
         ("product","Product / Item Master"),("unit","Unit Master"),("brand","Brand Master"),("hsnsac","HSN/SAC Master"),
         ("tax","GST Rate Master"),("taxassignments","Classification rate assignments"),("financialyear","Financial Year Master"),

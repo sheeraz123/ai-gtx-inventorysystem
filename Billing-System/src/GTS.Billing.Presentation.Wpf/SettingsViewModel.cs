@@ -229,7 +229,7 @@ public sealed partial class SettingsViewModel(ApplicationSettingsService service
         if(access.IsSuperAdmin) options.Add(new(LoginPage.Section));
         if(access.IsSuperAdmin && access.CurrentCompanyId is not null)
         {
-            options.AddRange(new[]{ConfigurationModule.General,FormsSection,ConfigurationModule.Billing,ConfigurationModule.Shortcuts,ConfigurationModule.History}
+            options.AddRange(new[]{ConfigurationModule.General,FormsSection,ConfigurationModule.Billing,ConfigurationModule.Shortcuts,EnvelopeConfiguration.Section,ConfigurationModule.History}
                 .Select(name=>new SettingsSection(name)));
             SelectedConfigurationModule??=ConfigurationModules[0];
         }

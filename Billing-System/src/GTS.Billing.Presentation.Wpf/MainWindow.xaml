@@ -73,6 +73,9 @@
     <MenuItem Header="{Binding ReportsCaption}" Tag="&#xE9D9;" Style="{StaticResource ShellMenuHeader}"
      Visibility="{Binding CanSeeReports,Converter={StaticResource Visible}}"
      Command="{Binding NavigateCommand}" CommandParameter="{Binding Reports}"/>
+    <MenuItem x:Name="PrintingMenuHeader" Header="{Binding PrintingCaption}" Tag="&#xE749;" Style="{StaticResource ShellMenuHeader}"
+     Visibility="{Binding HasPrinting,Converter={StaticResource Visible}}" ItemsSource="{Binding PrintingMenu}"
+     ItemContainerStyle="{StaticResource ShellSubmenuItem}" MouseEnter="OpenNavigationSubmenu"/>
     <MenuItem x:Name="AdministrationMenuHeader" Header="{Binding AdministrationCaption}" Tag="&#xE713;" Style="{StaticResource ShellMenuHeader}" ItemsSource="{Binding AdministrationMenu}"
      Visibility="{Binding HasAdministration,Converter={StaticResource Visible}}"
      ItemContainerStyle="{StaticResource ShellSubmenuItem}" MouseEnter="OpenNavigationSubmenu"/>
@@ -93,6 +96,7 @@
   <local:TaxView x:Name="TaxPanel" Visibility="Collapsed" />
   <local:NumberingView x:Name="NumberingPanel" Visibility="Collapsed"/>
   <local:SalesInvoiceView x:Name="SalesPanel" Visibility="Collapsed"/>
+  <local:EnvelopePrintingView x:Name="EnvelopePanel" Visibility="Collapsed"/>
   <local:SecurityAdministrationView x:Name="SecurityPanel" Visibility="Collapsed" />
   <local:SettingsView x:Name="SettingsPanel" Visibility="Collapsed"/>
   </Grid>

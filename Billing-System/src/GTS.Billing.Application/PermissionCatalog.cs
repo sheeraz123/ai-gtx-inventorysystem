@@ -17,6 +17,7 @@ public static class PermissionCatalog
         new("Company.BrandingManage","Company","company","ChangeSignature"),
         new("Company.InvoiceSettingsManage","Company","company","ManageSettings"),
         new("Customer.View","Customer","customer","View"),
+        new("EnvelopePrinting.Print","Envelope Printing","customer","Print"),
         new("Customer.Create","Customer","customer","Create"),
         new("Customer.Edit","Customer","customer","Edit"),
         new("Customer.StatusChange","Customer","customer","Cancel"),
@@ -108,6 +109,7 @@ public sealed record AccessSnapshot(bool IsSuperAdmin, Guid? CurrentCompanyId, I
     {
         "dashboard" => true, "company" => IsSuperAdmin || Companies.Count > 0,
         "customer" => Allows("Customer.View"), "category" => Allows("Category.View"), "product" => Allows("Product.View"),
+        "envelope-printing"=>Allows("Customer.View") && Allows("EnvelopePrinting.Print"),
         "unit" => Allows("Unit.View"), "brand" => Allows("Brand.View"),
         "hsnsac" => Allows("TaxClassification.View"), "tax" or "taxassignments" => Allows("GstRate.View"),
         "financialyear" => Allows("FinancialYear.View"), "documentseries" => Allows("DocumentSeries.View"),

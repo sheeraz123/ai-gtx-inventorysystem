@@ -360,42 +360,9 @@ public sealed partial class SalesInvoiceViewModel(SalesInvoiceService service,Cu
             SalesEntryDetails? entry=null;
             if(row is null)
             {
-                var chooser=new MeasureEditorDialog("Select Sale Type",false)
-                    {Title="Select Sale Type",Owner=System.Windows.Application.Current.MainWindow,
-                        MinWidth=380,MinHeight=230,Width=440,Height=250};
-                var selection=new ListView {ItemsSource=new[]{"Local Sale / Intra-State","Inter-State Sale"},
-                    SelectionMode=SelectionMode.Single,MinHeight=76};
-                var itemStyle=new Style(typeof(ListViewItem));
-                itemStyle.Setters.Add(new Setter(Control.PaddingProperty,new Thickness(10,8,10,8)));
-                itemStyle.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty,HorizontalAlignment.Stretch));
-                selection.ItemContainerStyle=itemStyle;
-                chooser.AddField("Select a sale type to continue",selection,null);
-                var proceed=chooser.FooterButton("Continue");
-                proceed.IsEnabled=false;
-                proceed.IsDefault=true;
-                selection.SelectionChanged+=(_,_)=>proceed.IsEnabled=selection.SelectedIndex>=0;
-                void ContinueWithSelection()
-                {
-                    if(selection.SelectedIndex<0 || entry is not null) return;
-                    entry=new(selection.SelectedIndex==0?SalesIntent.Local:SalesIntent.Interstate,"Cash");
-                    chooser.Close();
-                }
-                proceed.Click+=(_,_)=>ContinueWithSelection();
-                selection.PreviewKeyDown+=(_,args)=>
-                {
-                    if(args.Key!=Key.Enter || selection.SelectedIndex<0) return;
-                    args.Handled=true;
-                    ContinueWithSelection();
-                };
-                selection.MouseDoubleClick+=(_,args)=>
-                {
-                    if(args.ChangedButton!=MouseButton.Left || args.OriginalSource is not DependencyObject source ||
-                        ItemsControl.ContainerFromElement(selection,source) is not ListViewItem {IsSelected:true}) return;
-                    args.Handled=true;
-                    ContinueWithSelection();
-                };
-                chooser.ShowDialog();
-                if(entry is null) return;
+                var chooser=new SaleTypeDialog(System.Windows.Application.Current.MainWindow);
+                if(chooser.ShowDialog()!=true || chooser.SelectedIntent is not { } intent) return;
+                entry=new(intent,"Cash");
             }
             var data=row is null?new SalesResult(CompanyOutcome.Success,Draft:new(DateOnly.FromDateTime(DateTime.Today),EntryDetails:entry)):
                 await Send(new(SalesAction.View,current,row.Id));

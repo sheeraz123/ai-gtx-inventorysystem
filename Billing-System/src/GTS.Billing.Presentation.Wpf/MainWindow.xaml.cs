@@ -37,7 +37,8 @@ public partial class MainWindow : Window
         SecurityAdministrationViewModel? security=null,SecurityAdministrationService? securityService=null,
         SettingsViewModel? settings=null,ApplicationSettingsService? settingsService=null,UnitBrandViewModel? unitBrand=null,
         TaxViewModel? tax=null,NumberingViewModel? numbering=null,SalesInvoiceViewModel? sales=null,
-        ProductVariantService? variants=null)
+        ProductVariantService? variants=null,EnvelopePrintingViewModel? envelope=null,
+        GTS.Billing.Printing.EnvelopePrintService? envelopePrinter=null)
     {
         SettingsDisplay.Instance.Apply(ResolvedSettings.Empty);
         InitializeComponent();
@@ -58,7 +59,7 @@ public partial class MainWindow : Window
             };
             if(gesture is null) return;
             bool Assigned(string id)=>SettingsDisplay.Current.Text("Configuration.Shortcut."+id,"Disabled")==gesture;
-            foreach(var (id,menu) in new[]{("master",MasterMenuHeader),("transactions",TransactionMenuHeader),
+            foreach(var (id,menu) in new[]{("master",MasterMenuHeader),("transactions",TransactionMenuHeader),("printing",PrintingMenuHeader),
                 ("administration",AdministrationMenuHeader)})
                 if(Assigned(id) && menu.IsVisible && menu.IsEnabled)
                 {menu.Focus();menu.IsSubmenuOpen=true;eventArgs.Handled=true;return;}
@@ -75,6 +76,8 @@ public partial class MainWindow : Window
         TaxPanel.DataContext=tax;
         NumberingPanel.DataContext=numbering;
         SalesPanel.DataContext=sales;
+        if(envelope is not null) EnvelopePanel.Configure(envelope,settingsService,envelopePrinter,
+            ()=>viewModel.NavigateCommand.Execute(viewModel.Dashboard));
         if(sales is not null) sales.SessionExpired+=async ()=>await authentication.CheckSessionAsync(lifetime.Token);
         if(numbering is not null) numbering.SessionExpired+=async ()=>await authentication.CheckSessionAsync(lifetime.Token);
         SettingsDisplay.Instance.Changed+=(_,_)=>numbering?.RefreshDisplay();
@@ -130,6 +133,7 @@ public partial class MainWindow : Window
             var isTax=TaxModule(viewModel.SelectedModule.Code) is not null;
             var isNumbering=NumberingModule(viewModel.SelectedModule.Code) is not null;
             var isSales=viewModel.SelectedModule.Code=="invoice";
+            var isEnvelope=viewModel.SelectedModule.Code=="envelope-printing";
             var isSecurity=viewModel.SelectedModule.Code=="users";
             var isSettings=viewModel.SelectedModule.Code=="settings";
             CatalogPanel.Visibility = isCatalog ? Visibility.Visible : Visibility.Collapsed;
@@ -137,9 +141,11 @@ public partial class MainWindow : Window
             TaxPanel.Visibility=isTax?Visibility.Visible:Visibility.Collapsed;
             NumberingPanel.Visibility=isNumbering?Visibility.Visible:Visibility.Collapsed;
             SalesPanel.Visibility=isSales?Visibility.Visible:Visibility.Collapsed;
+            EnvelopePanel.Visibility=isEnvelope?Visibility.Visible:Visibility.Collapsed;
+            envelope?.Open(isEnvelope);
             SecurityPanel.Visibility=isSecurity?Visibility.Visible:Visibility.Collapsed;
             SettingsPanel.Visibility=isSettings?Visibility.Visible:Visibility.Collapsed;
-            PlannedPanel.Visibility = isCompany || isCustomer || isCatalog || isSecurity || isSettings || isUnitBrand || isTax || isNumbering || isSales ? Visibility.Collapsed : Visibility.Visible;
+            PlannedPanel.Visibility = isCompany || isCustomer || isCatalog || isSecurity || isSettings || isUnitBrand || isTax || isNumbering || isSales || isEnvelope ? Visibility.Collapsed : Visibility.Visible;
             if(isSales && authentication.Page==AuthenticationPage.Shell && sales is not null) await sales.OpenAsync();
             else sales?.Clear();
             if(isNumbering && authentication.Page==AuthenticationPage.Shell) await OpenNumberingAsync();
@@ -288,6 +294,7 @@ public partial class MainWindow : Window
             tax?.SetAccess(value);
             numbering?.SetAccess(value);
             sales?.SetAccess(value);
+            envelope?.SetAccess(value);
             security?.SetAccess(value);
             settings?.SetAccess(value);
             viewModel.SetAccess(value);

@@ -30,7 +30,7 @@ public sealed record ShellMenuEntry(PlannedModule Module, IRelayCommand<PlannedM
     public string Title => ConfigurationModule.MenuCaption(SettingsDisplay.Current,Module.Code,Module.Caption);
     public string Icon=>Module.Code switch
     {
-        "company"=>"\uE821",
+        "company"=>"\uE821","envelope-printing"=>"\uE715",
         "customer" or "users"=>"\uE716",
         "category"=>"\uE8F1",
         "product"=>"\uE7B8",
@@ -53,6 +53,7 @@ public sealed class ShellViewModel : ObservableObject
     private AccessSnapshot access=AccessSnapshot.Denied;
     private readonly ShellMenuEntry[] masters;
     private readonly ShellMenuEntry[] transactions;
+    private readonly ShellMenuEntry[] printing;
     private readonly ShellMenuEntry[] administration;
     public IReadOnlyList<PlannedModule> Modules=>ModuleCatalog;
     internal static IReadOnlyList<PlannedModule> ModuleCatalog
@@ -68,7 +69,8 @@ public sealed class ShellViewModel : ObservableObject
         new("price", "Price List"), new("payment", "Payment Terms"), new("quotation", "Quotation"),
         new("proforma", "Proforma Invoice"), new("invoice", "Sales Invoice"), new("retail", "Retail Invoice"),
         new("credit", "Credit Note"), new("debit", "Debit Note"), new("reports", "Reports"),
-        new("users", "User Management"), new("backup", "Backup and Restore"), new("settings", "Settings")
+        new("users", "User Management"), new("backup", "Backup and Restore"), new("settings", "Settings"),
+        new("envelope-printing","Envelope Printing")
     });
     private PlannedModule selectedModule;
     public Func<PlannedModule, bool>? NavigationGuard { get; set; }
@@ -97,6 +99,9 @@ public sealed class ShellViewModel : ObservableObject
     public PlannedModule Reports => Modules.Single(module => module.Code == "reports");
     public IReadOnlyList<ShellMenuEntry> MasterMenu => Visible("master",masters);
     public IReadOnlyList<ShellMenuEntry> TransactionMenu => Visible("transactions",transactions);
+    public IReadOnlyList<ShellMenuEntry> PrintingMenu => Visible("printing",printing);
+    public bool HasPrinting=>PrintingMenu.Count>0;
+    public string PrintingCaption=>ConfigurationModule.MenuCaption(SettingsDisplay.Current,"printing","Printing");
     public IReadOnlyList<ShellMenuEntry> AdministrationMenu => Visible("administration",administration);
     public string MasterCaption=>ConfigurationModule.MenuCaption(SettingsDisplay.Current,"master",SettingsDisplay.Text("Navigation.Master","Master"));
     public string TransactionCaption=>ConfigurationModule.MenuCaption(SettingsDisplay.Current,"transactions",SettingsDisplay.Text("Navigation.Transactions","Transactions"));
@@ -109,12 +114,14 @@ public sealed class ShellViewModel : ObservableObject
     public bool CanNavigate(PlannedModule module)=>access.CanNavigate(module.Code) && MenuVisible(module.Code) &&
         (!masters.Any(entry=>entry.Module==module) || MenuVisible("master")) &&
         (!transactions.Any(entry=>entry.Module==module) || MenuVisible("transactions")) &&
+        (!printing.Any(entry=>entry.Module==module) || MenuVisible("printing")) &&
         (!administration.Any(entry=>entry.Module==module) || MenuVisible("administration"));
     private bool MenuVisible(string code)=>access.IsSuperAdmin || ConfigurationModule.MenuVisible(SettingsDisplay.Current,code);
     public string CurrentHeading=>SelectedModule.Code=="dashboard"?SettingsDisplay.Current.Get(SettingsRegistry.HomeHeading):SelectedModule.Caption;
     public string CurrentDescription=>SelectedModule.Code=="dashboard"?SettingsDisplay.Current.Get(SettingsRegistry.Welcome):SelectedModule.Description;
     public void RefreshDisplay()
     {
+        OnPropertyChanged(nameof(PrintingMenu));OnPropertyChanged(nameof(HasPrinting));OnPropertyChanged(nameof(PrintingCaption));
         OnPropertyChanged(nameof(MasterMenu));OnPropertyChanged(nameof(TransactionMenu));OnPropertyChanged(nameof(AdministrationMenu));
         OnPropertyChanged(nameof(HasMasters));OnPropertyChanged(nameof(HasTransactions));OnPropertyChanged(nameof(HasAdministration));
         OnPropertyChanged(nameof(CanSeeReports));OnPropertyChanged(nameof(MasterCaption));OnPropertyChanged(nameof(TransactionCaption));
@@ -137,6 +144,7 @@ public sealed class ShellViewModel : ObservableObject
     public void SetAccess(AccessSnapshot value)
     {
         access=value;
+        OnPropertyChanged(nameof(PrintingMenu));OnPropertyChanged(nameof(HasPrinting));
         OnPropertyChanged(nameof(MasterMenu));OnPropertyChanged(nameof(TransactionMenu));OnPropertyChanged(nameof(AdministrationMenu));
         OnPropertyChanged(nameof(HasMasters));OnPropertyChanged(nameof(HasTransactions));OnPropertyChanged(nameof(HasAdministration));
         OnPropertyChanged(nameof(CanSeeReports));
@@ -159,6 +167,7 @@ public sealed class ShellViewModel : ObservableObject
         NavigateCommand = new RelayCommand<PlannedModule>(module => { if (module is not null && CanNavigate(module)) SelectedModule = module; });
         masters = MenuEntries("company", "customer", "category", "product", "unit", "brand", "hsnsac", "tax", "taxassignments", "financialyear", "documentseries", "price", "payment");
         transactions = MenuEntries("quotation", "proforma", "invoice", "retail", "credit", "debit");
+        printing = MenuEntries("envelope-printing");
         administration = MenuEntries("users", "backup", "settings");
     }
 

@@ -1,0 +1,56 @@
+<UserControl x:Class="GTS.Billing.Presentation.Wpf.EnvelopePrintingView"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:GTS.Billing.Presentation.Wpf">
+ <UserControl.Resources><BooleanToVisibilityConverter x:Key="Visible"/></UserControl.Resources>
+ <DockPanel Margin="16">
+  <StackPanel DockPanel.Dock="Top">
+   <TextBlock Text="Envelope Printing" FontSize="26" FontWeight="SemiBold"/>
+   <TextBlock Text="Only recipient details are printed on the envelope." Margin="0,4,0,8"/>
+   <local:NoticeBanner Text="{Binding Message}"/>
+  </StackPanel>
+  <WrapPanel x:Name="Actions" DockPanel.Dock="Bottom" Margin="0,10,0,0">
+   <Button x:Name="PrintButton" Content="Print envelope" Click="PrintClicked" Padding="12,5" Margin="0,0,8,0"/>
+   <Button Content="Print settings" Click="SettingsClicked" Padding="12,5" Margin="0,0,8,0"
+           Visibility="{Binding CanConfigure,Converter={StaticResource Visible}}"/>
+   <Button Content="Close" Click="CloseClicked" Padding="12,5"/>
+  </WrapPanel>
+  <Grid>
+   <Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="3*"/></Grid.ColumnDefinitions>
+   <Border BorderBrush="{DynamicResource Palette.GridLine}" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,10,0">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+     <StackPanel>
+      <TextBlock Text="Customer details" FontSize="17" FontWeight="SemiBold"/>
+      <Label Content="Customer" Target="{Binding ElementName=CustomerChoice}" Margin="0,5,0,0"/>
+      <local:SearchableComboBox x:Name="CustomerChoice" RemoteSearch="True"
+                               SearchItemsSource="{Binding Matches}" DisplayMemberPath="Label"
+                               SearchQuery="{Binding Query,Mode=TwoWay,UpdateSourceTrigger=PropertyChanged}"
+                               SelectionChanged="CustomerSelected" MinHeight="30"
+                               AutomationProperties.Name="Search customer by name or code"/>
+      <Label Content="Shipping address" Target="{Binding ElementName=AddressChoice}"/>
+      <ComboBox x:Name="AddressChoice" ItemsSource="{Binding Shipping}" SelectedItem="{Binding SelectedShipping}"
+                DisplayMemberPath="Label" MinHeight="30"/>
+      <StackPanel x:Name="RecipientFields" Margin="0,7,0,0"/>
+     </StackPanel>
+    </ScrollViewer>
+   </Border>
+   <Border Grid.Column="1" BorderBrush="{DynamicResource Palette.GridLine}" BorderThickness="1" CornerRadius="6">
+    <DockPanel>
+     <StackPanel DockPanel.Dock="Top" Margin="10,8">
+      <TextBlock Text="Live print preview" FontSize="17" FontWeight="SemiBold"/>
+      <TextBlock x:Name="PreviewStatus" TextWrapping="Wrap" Margin="0,3,0,5"/>
+      <WrapPanel>
+       <Button Content="−" Click="ZoomOut" ToolTip="Zoom out"/>
+       <Button Content="+" Click="ZoomIn" ToolTip="Zoom in" Margin="5,0"/>
+       <Button Content="Fit envelope" Click="FitPreview"/>
+      </WrapPanel>
+     </StackPanel>
+     <ScrollViewer x:Name="PreviewScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                   SizeChanged="PreviewSizeChanged" Background="{DynamicResource Palette.Canvas}">
+      <ContentControl x:Name="PreviewPage" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="10"/>
+     </ScrollViewer>
+    </DockPanel>
+   </Border>
+  </Grid>
+ </DockPanel>
+</UserControl>

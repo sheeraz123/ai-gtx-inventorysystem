@@ -193,6 +193,7 @@ public static partial class SettingsRegistry
     ];
 
     public static readonly ImmutableArray<SettingDefinition> Definitions=Core.Concat(PrintMargins).Concat(OptionalSections).Concat(GridLayouts)
+        .Concat(EnvelopeConfiguration.Definitions)
         .Concat([ShellTheme,NavigationPosition,InvoiceListLayout,InvoiceFilterArrangement,InvoiceActionArrangement])
         .Concat(SalesListConfiguration.Items)
         .Concat(LoginPage.Keys.Values)
